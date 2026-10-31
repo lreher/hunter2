@@ -33,16 +33,18 @@ void render_init(void) {
 
     GpuPipelineDesc pipeline = {0};
     pipeline.shader = shader;
-    pipeline.vertex_stride = sizeof(Quad);
-    pipeline.vertex_step = GPU_STEP_INSTANCE;
+    pipeline.buffer_count = 1;
+    pipeline.buffers[0] = (GpuVertexBufferLayout){sizeof(Quad), GPU_STEP_INSTANCE};
     pipeline.attribute_count = 4;
-    pipeline.attributes[0] = (GpuAttribute){0, 0, GPU_VERTEX_FLOAT32X4};  // x y w h
-    pipeline.attributes[1] = (GpuAttribute){1, 16, GPU_VERTEX_FLOAT32X4}; // u v uw vh
-    pipeline.attributes[2] = (GpuAttribute){2, 32, GPU_VERTEX_FLOAT32X4}; // r g b a
-    pipeline.attributes[3] = (GpuAttribute){3, 48, GPU_VERTEX_FLOAT32X4}; // shape p1 p2 p3
+    pipeline.attributes[0] = (GpuAttribute){0, 0, 0, GPU_VERTEX_FLOAT32X4};  // x y w h
+    pipeline.attributes[1] = (GpuAttribute){0, 1, 16, GPU_VERTEX_FLOAT32X4}; // u v uw vh
+    pipeline.attributes[2] = (GpuAttribute){0, 2, 32, GPU_VERTEX_FLOAT32X4}; // r g b a
+    pipeline.attributes[3] = (GpuAttribute){0, 3, 48, GPU_VERTEX_FLOAT32X4}; // shape p1 p2 p3
     pipeline.target_format = GPU_FORMAT_SCREEN;
     pipeline.blend = GPU_BLEND_ALPHA;
     pipeline.topology = GPU_TOPOLOGY_TRIANGLE_STRIP;
+    pipeline.depth = GPU_DEPTH_OFF; // 2D overlay, drawn last, always on top
+    pipeline.cull = GPU_CULL_NONE;
     render_pipeline = plat_gpu_create_pipeline(&pipeline);
 
     GpuBindGroupDesc bind_group = {0};
@@ -53,10 +55,13 @@ void render_init(void) {
     bind_group.entries[1] = (GpuBindEntry){1, GPU_BIND_TEXTURE, font_texture};
     bind_group.entries[2] = (GpuBindEntry){2, GPU_BIND_SAMPLER, sampler};
     render_bind_group = plat_gpu_create_bind_group(&bind_group);
+
+    render_mesh_init();
 }
 
 void render_begin(f32 r, f32 g, f32 b) {
     render_quad_count = 0;
+    render_mesh_begin();
     plat_gpu_begin_frame(r, g, b);
 
     f32 screen[2] = {(f32)plat_screen_width(), (f32)plat_screen_height()};
@@ -116,6 +121,7 @@ void render_draw_text_centered(const char *s, f32 scale, f32 r, f32 g, f32 b) {
 }
 
 void render_end(void) {
+    render_mesh_end();
     if (render_quad_count > 0) {
         plat_gpu_write_buffer(render_instances, 0, render_quads, render_quad_count * sizeof(Quad));
         plat_gpu_set_pipeline(render_pipeline);

@@ -5,7 +5,7 @@ import { createInput } from "./input.js";
 
 const ctx = { canvas: document.getElementById("screen"), memory: null };
 
-const input = createInput();
+const input = createInput(ctx.canvas);
 const env = { ...createEnv(ctx), ...input.env, ...(await createGpu(ctx)) };
 const { instance } = await WebAssembly.instantiateStreaming(fetch("game.wasm"), { env });
 ctx.memory = instance.exports.memory;

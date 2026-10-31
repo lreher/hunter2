@@ -79,7 +79,7 @@ Proposed changes to plan:
 - C side: platform/gpu.c wrappers (plat_gpu_*) count crossings in plat_gpu_stats. render/shaders.c holds WGSL, render.c builds the pipeline and batches quads, font.c returns a texture handle. Only gpu.c calls js_gpu_*.
 - New base helpers: str_append, str_append_i32. plat_log_i32 logs "label: value".
 - Checks (fake WebGPU, real wasm): descriptors reaching WebGPU match the old hardcoded setup exactly. Per frame: 8 C->JS calls, 1 draw, 536 bytes uploaded. Init: 8 calls. Browser not checked yet.
-- Limits: entry points must be "vs"/"fs". One vertex buffer slot. Handles are never reused.
+- Limits: entry points must be "vs"/"fs". One vertex buffer slot (two since 2026-10-31). Handles are never reused.
 
 ## Step 3/4 log (loop, physics, balls)
 - 2026-10-09: base/math.c (V2, cphiz names, paired v2_verb / v2_verbed, 2D), base/rand.c (xorshift32, seeded), phys/{phys.h,particle.c} (Particle, particle_integrate, particle_collide_box). phys depends on base only.
@@ -103,6 +103,9 @@ Proposed changes to plan:
 - 2026-10-09: web/input.js (key state, "pressed" lasts one frame, key repeat ignored, blur clears held keys, preventDefault on mapped keys). src/platform/input.h (KEY_ enum, order must match KEY_NAMES in input.js), input.c (plat_key_down, plat_key_pressed). index.js calls input.endFrame() after each game_frame. Polling means one C->JS call per query.
 - Game: space respawns all balls. Seed is set once in game_init, so respawns give new layouts, first layout is always the same. Logs "balls spawned: N".
 - Checked with simulated events on the real wasm: 1 press = 1 respawn, held key (repeat events) = 1 respawn, unknown key and arrows do nothing, second press gives a different layout, blur then press still works. Browser not checked yet.
+
+## 3D render kit
+- 2026-10-31: depth buffer, 2 vertex buffer slots, depth and cull modes, line topology in the GPU bridge. render/mesh.c: instanced spheres and boxes, lines, camera. Details in physics-engine.md log. Build uses -mbulk-memory.
 
 ## Reference book
 - 2026-10-13: Millington "Game Physics Engine Development" (481 pages) extracted with pdftotext -layout to reference/millington.txt (pages split by form feed). reference/chapters.txt = chapter to pdf page map (book page = pdf page - 23). reference/contents.txt = raw table of contents (small caps are mangled). Equations and figures do not survive as text: read those pages from the PDF directly (Read tool, pages param).

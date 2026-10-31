@@ -47,3 +47,66 @@ static const char render_shader_quad[] =
     "    }\n"
     "    return vec4f(i.color.rgb, i.color.a * coverage);\n"
     "}\n";
+
+// One instance = one sphere or box: unit mesh scaled by half size, rotated, moved to center.
+// Instance layout must match MeshInstance in mesh.c.
+static const char render_shader_mesh[] =
+    "struct Camera { view_proj: mat4x4f, light: vec4f };\n"
+    "@group(0) @binding(0) var<uniform> camera: Camera;\n"
+    "\n"
+    "struct In {\n"
+    "    @location(0) pos: vec3f,\n"
+    "    @location(1) normal: vec3f,\n"
+    "    @location(2) center: vec4f,\n"
+    "    @location(3) half_size: vec4f,\n"
+    "    @location(4) rotation: vec4f,\n" // quaternion x y z w
+    "    @location(5) color: vec4f,\n"
+    "};\n"
+    "struct VOut {\n"
+    "    @builtin(position) pos: vec4f,\n"
+    "    @location(0) normal: vec3f,\n"
+    "    @location(1) color: vec4f,\n"
+    "};\n"
+    "\n"
+    "fn rotate(q: vec4f, v: vec3f) -> vec3f {\n"
+    "    let t = 2.0 * cross(q.xyz, v);\n"
+    "    return v + q.w * t + cross(q.xyz, t);\n"
+    "}\n"
+    "\n"
+    "@vertex fn vs(i: In) -> VOut {\n"
+    "    let world = i.center.xyz + rotate(i.rotation, i.pos * i.half_size.xyz);\n"
+    "    var o: VOut;\n"
+    "    o.pos = camera.view_proj * vec4f(world, 1.0);\n"
+    "    o.normal = rotate(i.rotation, i.normal / i.half_size.xyz);\n" // stretched shapes bend their normals the other way
+    "    o.color = i.color;\n"
+    "    return o;\n"
+    "}\n"
+    "\n"
+    "@fragment fn fs(i: VOut) -> @location(0) vec4f {\n"
+    "    let n = normalize(i.normal);\n"
+    "    let diffuse = max(dot(n, camera.light.xyz), 0.0);\n"
+    "    let sky = 0.5 + 0.5 * n.y;\n" // ambient: a bit more from above than below
+    "    let light = 0.15 + 0.15 * sky + 0.7 * diffuse;\n"
+    "    return vec4f(i.color.rgb * light, i.color.a);\n"
+    "}\n";
+
+// Lines in world space, one color per vertex. Layout must match LineVertex in mesh.c.
+static const char render_shader_line[] =
+    "struct Camera { view_proj: mat4x4f, light: vec4f };\n"
+    "@group(0) @binding(0) var<uniform> camera: Camera;\n"
+    "\n"
+    "struct VOut {\n"
+    "    @builtin(position) pos: vec4f,\n"
+    "    @location(0) color: vec3f,\n"
+    "};\n"
+    "\n"
+    "@vertex fn vs(@location(0) pos: vec3f, @location(1) color: vec3f) -> VOut {\n"
+    "    var o: VOut;\n"
+    "    o.pos = camera.view_proj * vec4f(pos, 1.0);\n"
+    "    o.color = color;\n"
+    "    return o;\n"
+    "}\n"
+    "\n"
+    "@fragment fn fs(i: VOut) -> @location(0) vec4f {\n"
+    "    return vec4f(i.color, 1.0);\n"
+    "}\n";

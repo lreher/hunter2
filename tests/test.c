@@ -243,6 +243,58 @@ static void test_rand(void) {
     CHECK(rand_u32() != 0);              // seed 0 must not get stuck
 }
 
+static void test_trig(void) {
+    NEAR(f32_sin(0), 0);
+    NEAR(f32_sin(F32_PI / 6), 0.5f);
+    NEAR(f32_sin(F32_PI / 2), 1);
+    NEAR(f32_sin(-F32_PI / 6), -0.5f);
+    NEAR(f32_sin(F32_PI * 7 / 6), -0.5f);
+    NEAR(f32_sin(F32_PI / 6 + 20 * F32_PI), 0.5f); // far from zero still folds back
+    NEAR(f32_cos(0), 1);
+    NEAR(f32_cos(F32_PI), -1);
+    NEAR(f32_cos(F32_PI / 3), 0.5f);
+    NEAR(f32_tan(F32_PI / 4), 1);
+    f32 worst = 0;
+    for (f32 x = -10; x < 10; x += 0.01f) {
+        f32 s = f32_sin(x), c = f32_cos(x);
+        f32 err = s * s + c * c - 1;
+        if (err < 0) err = -err;
+        if (err > worst) worst = err;
+    }
+    CHECK(worst < 0.00001f);                 // sin^2 + cos^2 = 1 everywhere
+}
+
+// m * (x, y, z, 1), divided by w
+static V3 transform_point(M4 m, V3 p) {
+    f32 out[4];
+    for (i32 row = 0; row < 4; row++) out[row] = m.m[row] * p.x + m.m[4 + row] * p.y + m.m[8 + row] * p.z + m.m[12 + row];
+    return v3_create(out[0] / out[3], out[1] / out[3], out[2] / out[3]);
+}
+
+static void test_m4(void) {
+    M4 a = m4_identity();
+    a.m[12] = 5;                             // move x by 5
+    M4 b = m4_identity();
+    b.m[0] = 2;                              // scale x by 2
+    V3 p = transform_point(m4_multiplied(a, b), v3_create(1, 0, 0));
+    NEAR(p.x, 7);                            // scaled first, then moved
+    p = transform_point(m4_multiplied(b, a), v3_create(1, 0, 0));
+    NEAR(p.x, 12);                           // moved first, then scaled
+
+    M4 view = m4_look_at(v3_create(0, 0, 5), v3_zero(), v3_create(0, 1, 0));
+    p = transform_point(view, v3_zero());
+    NEAR(p.z, -5);                           // the target is 5 in front, down -z
+    p = transform_point(view, v3_create(1, 2, 0));
+    NEAR(p.x, 1);                            // right stays right
+    NEAR(p.y, 2);                            // up stays up
+
+    M4 proj = m4_perspective(F32_PI / 2, 2, 1, 100);
+    NEAR(transform_point(proj, v3_create(0, 0, -1)).z, 0);   // near plane -> depth 0
+    NEAR(transform_point(proj, v3_create(0, 0, -100)).z, 1); // far plane -> depth 1
+    NEAR(transform_point(proj, v3_create(0, 3, -3)).y, 1);   // 45 degrees up is the top edge (fov 90)
+    NEAR(transform_point(proj, v3_create(6, 0, -3)).x, 1);   // aspect 2: twice as wide
+}
+
 static void test_str(void) {
     char line[32];
     line[0] = 0;
@@ -268,6 +320,8 @@ __attribute__((export_name("run_tests"))) i32 run_tests(void) {
     test_spheres_3d();
     test_rand_unit();
     test_rand();
+    test_trig();
+    test_m4();
     test_str();
     return failures;
 }

@@ -1,6 +1,6 @@
 # focus: physics-engine
 
-Goal: build the game's physics engine in src/phys/, following Millington's "Game Physics Engine Development" while the user reads it.
+Goal: learn how to write a physics engine by working through Millington's "Game Physics Engine Development" chapter by chapter, building it together in src/phys/. Learning the physics comes first, the game second. Rendering, cameras and tooling are only there to see and check the physics: keep them as cheap as possible (2026-10-31). Second goal: everything lightning quick. So we keep C + wasm + our own WebGPU bridge (raylib and three.js weighed and dropped 2026-10-31: both slower for many instances, raylib web is WebGL and DrawSphere builds vertices on the CPU every call). Render kit for the whole book, built once and kept minimal: instanced meshes (sphere, box), lines, a free camera.
 
 ## How we work here
 - The user reads the book. Claude reads along: explains sections short or in depth, as asked.
@@ -38,14 +38,18 @@ This app (src/phys/, src/base/math.c), 3D since 2026-10-13, caught up with cphiz
 - particle_collide_box: 3D box, restitution, friction on impact (both other axes).
 - particle_collide_spheres: detects and resolves in one call (push apart by inverse mass, impulse along normal). Not the book's separate contact + resolver design.
 - particle_bounce_factor: impacts under PHYS_REST_SPEED (0.5 m/s) do not bounce.
-- Game: still flat. Everything at z = 0, box depth WORLD_D 1 m. Scale: 1000 balls cost 4.5 ms/frame CPU (80 cost 0.04 ms), all pairs is O(n^2), so 10,000 needs a broadphase grid first (book ch 12). Tried 2026-10-31, reverted to 80. Fixed step 1/60, 4 solver passes, all pairs, 80 balls, space respawns. Same behavior as the 2D version (headless sim: same overlap, no NaN).
+- Game: 3D since 2026-10-31. Box 16 x 9 x 9 m (x 0..16, y 0..9, z -4.5..4.5), free fly camera, balls drawn as lit spheres. Before that it was flat (z = 0). Scale: 1000 balls cost 4.5 ms/frame CPU (80 cost 0.04 ms), all pairs is O(n^2), so 10,000 needs a broadphase grid first (book ch 12). Tried 2026-10-31, reverted to 80. Fixed step 1/60, 4 solver passes, all pairs, 80 balls, space respawns. Same behavior as the 2D version (headless sim: same overlap, no NaN).
 - Not ported from cphiz yet: the explosion and fireworks demos (next step, as scenes picked by ?scene=). Skipped: v3_print (no printf), log_map (raygui slider helper).
 
 Not built (book order): force generators (ch 5), springs (ch 6), contact struct + contact resolver (ch 7), mass-aggregate engine (ch 8), rigid bodies and rotation (ch 9-11), broad phase and contact generation (ch 12-13), resolution with rotation, resting contacts, friction, stability (ch 14-16).
 
+## Machine notes
+- Linux/WSL machine (2026-10-31): tools from apt (clang, lld, poppler-utils). The game runs in Chrome on Windows at http://localhost:8000 (node serve.js in WSL). If Chrome says "no WebGPU adapter": chrome://gpu, check hardware acceleration, driver blocklist, or chrome://flags/#enable-unsafe-webgpu.
+
 ## Tests and instrumentation
 - ./test.sh: tests/test.c (base + phys) built to wasm, run in node. Add tests for every phys change.
-- tests/headless/sim.mjs: runs the real game with a fake WebGPU, ASCII view, overlap check.
+- tests/headless/fake.mjs: shared fake browser (real index.js + wasm, fake WebGPU, pointer lock). Reads the sphere instances C sends.
+- tests/headless/sim.mjs: runs the real game, ASCII front and top views, inside the box, NaN and 3D overlap checks.
 - tests/headless/jitter.mjs: per frame movement of the balls (is the pile still?).
 - tests/headless/keys.mjs: fake key events.
 - Stats line in the browser console once per second (fps, cpu us/frame, contacts/s, gpu calls).
@@ -53,13 +57,15 @@ Not built (book order): force generators (ch 5), springs (ch 6), contact struct 
 ## Decisions
 - V2 replaced by V3 everywhere. Game uses z = 0 while it is flat (2026-10-13).
 - Vector products return a value, no cphiz get_ pairs (2026-10-13).
-- Next: the ball scene in 3D (balls move in z, 3D drawing) (2026-10-31). cphiz demos after that, as scenes.
+- 3D ball scene done (2026-10-31). Next: cphiz demos as scenes (?scene=), or straight on to ch 5. Ask the user.
 - 3D physics, like the book (2026-10-13). Game dimension not decided.
 - phys/ depends on base only. Never render or platform.
 - Damping is per step (no libc pow). Fine because the step is fixed.
+- 3D balls drawn as real meshes (sphere mesh, per instance model matrix, depth buffer), not impostors. Chosen over impostors so rigid bodies (ch 9-11) reuse it (2026-10-31).
+- Camera: free fly, perspective (2026-10-31). Click locks the mouse, click again releases (Esc also releases, browser rule). Mouse looks only while locked. W moves along the view direction (noclip). E up, Q down (world axis). Space stays respawn. ~5 m/s, Shift ~4x. Pitch clamped short of straight up/down, no roll. Start in front of the box, a bit above, looking at its center.
+- 3D scene look: box 16 x 9 x 9 m. Solid floor plus 12 edge lines, no wall faces. One fixed angled light from above plus ambient, no shadows. Icosphere (~320 triangles), one mesh scaled per ball, all balls in one instanced draw (2026-10-31).
 
 ## Open questions
-- 3D ball scene: draw spheres as billboard impostors (quad + shaded sphere in the shader, cheap, fits the current quad batcher) or real meshes? Fixed camera or orbit? The GPU bridge has no depth buffer yet (impostors could sort back to front instead). Needs a 4x4 matrix in base for the camera.
 - Is the game itself going 3D now, or only this scene?
 - Rebuild collisions on the book's contact + resolver design (ch 7), or keep the current one until rigid bodies?
 - Next shape: non rotating boxes first, or straight to rotating rigid bodies?
@@ -75,3 +81,6 @@ Not built (book order): force generators (ch 5), springs (ch 6), contact struct 
 - 2026-10-31: setup.sh added (checks tools, clones Cyclone, extracts the book text, sets the git identity if missing). Tested in a fresh clone. contents.txt was cut off at 15.4.1 (pdf pages 8-14 only), now the full table of contents (pages 8-16).
 - 2026-10-31: new machine (Linux/WSL). User's PDF is from a different source (re-saved by PDFium, file name "Game Physics Engine Development.pdf"). Checked: 481 pages, real text, equations and figures render, TOC on pdf 8-16, book page = pdf page - 23 holds. chapters.txt had every chapter start one page late (parts were right), fixed.
 - 2026-10-31: scripts made generic. build.sh and test.sh take clang from PATH (override CLANG, WASM_LD). setup.sh test-builds a tiny wasm to check the toolchain and finds the book as "Game Physics Engine Development*.pdf". On macOS, brew llvm and lld must be on PATH (they are keg-only).
+- 2026-10-31: render kit built (steps 1-5). base: f32_sin/cos/tan (Taylor to x^11 after folding into [-pi/2, pi/2]), M4 (column major), m4_identity, m4_multiplied, m4_perspective (WebGPU depth 0..1), m4_look_at. GPU bridge: depth buffer every frame (JS remakes it on resize), pipelines get 2 vertex buffer slots, depth mode, cull mode, line topology. render/mesh.c: icosphere (320 triangles) and box meshes, instanced (64 byte instance: center, half size, rotation quaternion, color), lines, camera uniform (view_proj + light). API: render_set_camera, render_draw_sphere, render_draw_box, render_draw_line. Input: click locks the mouse, click again releases, js_mouse_dx/dy per frame, Q, E, Shift. Build flag -mbulk-memory (clang emitted memset for big zeroed structs, this turns it into the wasm memory.fill instruction). Headless scripts share tests/headless/fake.mjs and read the sphere instances (3D overlap, front and top ASCII views). Headless: 3 draws and 19 gpu calls per frame, ~50 us cpu/frame, no NaN, none outside, camera W/Shift/mouse lock behave. Checked in the browser by the user: works.
+- 2026-10-31: Windows Chrome said "no WebGPU adapter" (chrome://gpu: WebGPU disabled). Fixed on the user's side, see the Machine notes.
+- Seen in 3D: settled balls keep sliding on the floor for a long time (8 mm/frame mean at frame 1500). Wall friction only acts on impact, so nothing slows a ball sliding along the floor. A physics topic (friction is ch 15), not a render bug.

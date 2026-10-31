@@ -17,6 +17,7 @@
 #include "render/render.h"
 #include "render/shaders.c"
 #include "render/font.c"
+#include "render/mesh.c"
 #include "render/render.c"
 
 #include "game/game.h"

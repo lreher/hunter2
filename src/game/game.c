@@ -9,10 +9,26 @@
 #define GAME_STEP (1.0 / 60.0)
 #define GAME_MAX_FRAME_SECONDS 0.25 // after a stall, do not try to catch up on all of it
 
-// The world is in meters, y up, z toward the viewer. It is fitted into the screen with black bars if needed.
+// The world is in meters, y up, z toward the starting camera. The box spans x 0..W, y 0..H, z -D/2..D/2.
 #define WORLD_W 16.0f
 #define WORLD_H 9.0f
-#define WORLD_D 1.0f // physics is 3D, the game is flat: everything stays at z = 0, the box only needs to be deeper than a ball
+#define WORLD_D 9.0f
+
+// Free fly camera: mouse looks (while locked), WASD moves where you look, E/Q up/down, Shift faster.
+#define CAMERA_SPEED 5.0f      // m/s
+#define CAMERA_FAST 4.0f       // speed multiplier with Shift
+#define CAMERA_TURN 0.0025f    // radians per pixel of mouse movement
+#define CAMERA_MAX_PITCH 1.55f // just short of straight up/down, so the view never flips
+#define CAMERA_FOV (F32_PI / 3) // 60 degrees vertical
+
+typedef struct {
+    V3 position;
+    f32 yaw;   // 0 looks down -z, positive turns right
+    f32 pitch; // 0 is level, positive looks up
+} Camera;
+
+// in front of the box, a bit above, looking at its center
+static Camera game_camera = {{WORLD_W / 2, 7.0f, 16.0f}, 0, -0.15f};
 
 #define BALL_COUNT 80
 #define BALL_BOUNCE 0.9f
@@ -60,10 +76,11 @@ static void game_spawn_balls(void) {
 
         Particle *p = &ball->particle;
         for (i32 attempt = 0; attempt < 100; attempt++) { // keep the last try if the box is too full
-            p->position = v3_create(rand_f32(ball->radius, WORLD_W - ball->radius), rand_f32(2.0f, WORLD_H - ball->radius), 0);
+            p->position = v3_create(rand_f32(ball->radius, WORLD_W - ball->radius), rand_f32(2.0f, WORLD_H - ball->radius),
+                                    rand_f32(-WORLD_D / 2 + ball->radius, WORLD_D / 2 - ball->radius));
             if (!game_overlaps_placed(p->position, ball->radius, i)) break;
         }
-        p->velocity = v3_create(rand_f32(-6.0f, 6.0f), rand_f32(-3.0f, 3.0f), 0);
+        p->velocity = v3_create(rand_f32(-6.0f, 6.0f), rand_f32(-3.0f, 3.0f), rand_f32(-6.0f, 6.0f));
         p->acceleration = v3_create(0, -9.8f, 0);
         p->damping = 1.0f;
         particle_set_mass(p, ball->radius * ball->radius * 10.0f);
@@ -113,23 +130,64 @@ static void game_step(void) {
     }
 }
 
+static V3 game_camera_forward(void) {
+    f32 c = f32_cos(game_camera.pitch);
+    return v3_create(f32_sin(game_camera.yaw) * c, f32_sin(game_camera.pitch), -f32_cos(game_camera.yaw) * c);
+}
+
+static void game_update_camera(f32 seconds) {
+    if (plat_mouse_locked()) {
+        game_camera.yaw += plat_mouse_dx() * CAMERA_TURN;
+        game_camera.pitch -= plat_mouse_dy() * CAMERA_TURN;
+        if (game_camera.pitch > CAMERA_MAX_PITCH) game_camera.pitch = CAMERA_MAX_PITCH;
+        if (game_camera.pitch < -CAMERA_MAX_PITCH) game_camera.pitch = -CAMERA_MAX_PITCH;
+    }
+
+    V3 forward = game_camera_forward();
+    V3 right = v3_create(f32_cos(game_camera.yaw), 0, f32_sin(game_camera.yaw));
+    V3 move = v3_zero();
+    if (plat_key_down(KEY_W)) v3_add(&move, forward);
+    if (plat_key_down(KEY_S)) v3_subtract(&move, forward);
+    if (plat_key_down(KEY_D)) v3_add(&move, right);
+    if (plat_key_down(KEY_A)) v3_subtract(&move, right);
+    if (plat_key_down(KEY_E)) move.y += 1;
+    if (plat_key_down(KEY_Q)) move.y -= 1;
+    v3_normalize(&move); // diagonals are not faster
+    f32 speed = plat_key_down(KEY_SHIFT) ? CAMERA_SPEED * CAMERA_FAST : CAMERA_SPEED;
+    v3_add_scaled(&game_camera.position, move, speed * seconds);
+}
+
+// the 12 edges of the box
+static void game_draw_box_edges(V3 lo, V3 hi, f32 r, f32 g, f32 b) {
+    for (i32 i = 0; i < 4; i++) {
+        f32 u = (i & 1) ? hi.y : lo.y;
+        f32 v = (i & 2) ? hi.z : lo.z;
+        render_draw_line(v3_create(lo.x, u, v), v3_create(hi.x, u, v), r, g, b); // along x
+        u = (i & 1) ? hi.x : lo.x;
+        render_draw_line(v3_create(u, lo.y, v), v3_create(u, hi.y, v), r, g, b); // along y
+        v = (i & 2) ? hi.y : lo.y;
+        render_draw_line(v3_create(u, v, lo.z), v3_create(u, v, hi.z), r, g, b); // along z
+    }
+}
+
 // alpha: how far we are between the last step (0) and the next one (1)
 static void game_draw(f32 alpha) {
-    f32 screen_w = (f32)plat_screen_width();
-    f32 screen_h = (f32)plat_screen_height();
-    f32 scale = screen_w / WORLD_W < screen_h / WORLD_H ? screen_w / WORLD_W : screen_h / WORLD_H;
-    f32 origin_x = (screen_w - WORLD_W * scale) / 2;
-    f32 origin_y = (screen_h - WORLD_H * scale) / 2;
+    f32 aspect = (f32)plat_screen_width() / (f32)plat_screen_height();
+    M4 projection = m4_perspective(CAMERA_FOV, aspect, 0.05f, 200.0f);
+    V3 eye = game_camera.position;
+    M4 view = m4_look_at(eye, v3_added(eye, game_camera_forward()), v3_create(0, 1, 0));
 
     render_begin(0.02f, 0.02f, 0.04f);
-    render_draw_rect(origin_x, origin_y, WORLD_W * scale, WORLD_H * scale, 0.08f, 0.10f, 0.18f, 1.0f);
+    render_set_camera(m4_multiplied(projection, view));
+
+    // floor: a thin slab just under y = 0
+    render_draw_box(v3_create(WORLD_W / 2, -0.05f, 0), v3_create(WORLD_W / 2, 0.05f, WORLD_D / 2), 0.20f, 0.24f, 0.34f);
+    game_draw_box_edges(v3_create(0, 0, -WORLD_D / 2), v3_create(WORLD_W, WORLD_H, WORLD_D / 2), 0.45f, 0.55f, 0.75f);
 
     for (i32 i = 0; i < BALL_COUNT; i++) {
         Ball *ball = &game_balls[i];
         V3 position = v3_lerp(ball->previous_position, ball->particle.position, alpha);
-        f32 x = origin_x + position.x * scale;
-        f32 y = origin_y + (WORLD_H - position.y) * scale; // world y is up, screen y is down
-        render_draw_circle(x, y, ball->radius * scale, ball->r, ball->g, ball->b, 1.0f);
+        render_draw_sphere(position, ball->radius, ball->r, ball->g, ball->b);
     }
     render_end();
 }
@@ -186,6 +244,7 @@ void game_frame(f64 now_ms) {
         game_stats_steps++;
     }
 
+    game_update_camera((f32)frame_seconds);
     game_draw((f32)(game_accumulator / GAME_STEP));
     game_update_stats(now_ms, plat_now_ms() - cpu_start_ms);
 }

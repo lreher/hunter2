@@ -17,6 +17,9 @@ IMPORT("js_now_ms") f64 js_now_ms(void);
 // web/input.js
 IMPORT("js_key_down") i32 js_key_down(i32 key);
 IMPORT("js_key_pressed") i32 js_key_pressed(i32 key);
+IMPORT("js_mouse_locked") i32 js_mouse_locked(void);
+IMPORT("js_mouse_dx") f64 js_mouse_dx(void);
+IMPORT("js_mouse_dy") f64 js_mouse_dy(void);
 
 // web/gpu.js. only platform/gpu.c should call these, everyone else uses plat_gpu_*
 IMPORT("js_gpu_create_shader") GpuHandle js_gpu_create_shader(const char *wgsl, i32 len);

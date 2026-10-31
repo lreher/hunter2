@@ -21,7 +21,7 @@ check_tool pdftotext poppler
 CLANG=${CLANG:-clang}
 tmp=$(mktemp -d)
 echo 'int f(void) { return 1; }' > "$tmp/t.c"
-if "$CLANG" --target=wasm32 -ffreestanding -nostdlib ${WASM_LD:+--ld-path="$WASM_LD"} -Wl,--no-entry -Wl,--export=f \
+if "$CLANG" --target=wasm32 -mbulk-memory -ffreestanding -nostdlib ${WASM_LD:+--ld-path="$WASM_LD"} -Wl,--no-entry -Wl,--export=f \
     -o "$tmp/t.wasm" "$tmp/t.c" >/dev/null 2>&1; then
     echo "ok       clang + wasm-ld (wasm32 build)"
 else

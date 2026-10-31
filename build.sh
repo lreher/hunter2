@@ -3,7 +3,7 @@
 set -e
 cd "$(dirname "$0")"
 CLANG=${CLANG:-clang}
-$CLANG --target=wasm32 -ffreestanding -nostdlib -O2 -Wall -Wextra -Isrc \
+$CLANG --target=wasm32 -mbulk-memory -ffreestanding -nostdlib -O2 -Wall -Wextra -Isrc \
   ${WASM_LD:+--ld-path="$WASM_LD"} -Wl,--no-entry \
   -o web/game.wasm src/main.c
 echo "built web/game.wasm ($(wc -c < web/game.wasm) bytes)"

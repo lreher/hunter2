@@ -7,13 +7,21 @@ const decoder = new TextDecoder();
 
 // GpuPipelineDesc and GpuBindGroupDesc as i32 counts
 const MAX_ATTRIBUTES = 8;
+const MAX_VERTEX_BUFFERS = 2;
 const MAX_BIND_ENTRIES = 8;
-const PIPELINE_DESC_INTS = 7 + MAX_ATTRIBUTES * 3;
+const PIPELINE_HEAD_INTS = 2 + MAX_VERTEX_BUFFERS * 2 + 6; // shader, buffer_count, buffers, then 6 fields
+const PIPELINE_DESC_INTS = PIPELINE_HEAD_INTS + MAX_ATTRIBUTES * 4;
 const BIND_GROUP_DESC_INTS = 3 + MAX_BIND_ENTRIES * 3;
 
 const VERTEX_FORMATS = ["float32x2", "float32x3", "float32x4"];
 const STEP_MODES = ["vertex", "instance"];
-const TOPOLOGIES = ["triangle-list", "triangle-strip"];
+const TOPOLOGIES = ["triangle-list", "triangle-strip", "line-list"];
+const CULL_MODES = ["none", "back"];
+const DEPTH_FORMAT = "depth24plus";
+const DEPTH_MODES = [
+    { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: "always" },
+    { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: "less" },
+];
 const FILTERS = ["nearest", "linear"];
 const BLENDS = [
     undefined,
@@ -79,6 +87,23 @@ export async function createGpu(ctx) {
         return new Int32Array(ctx.memory.buffer, ptr, ints);
     }
 
+    // depth buffer, remade when the canvas size changes
+    let depthTexture = null;
+    let depthW = 0, depthH = 0;
+    function depthView() {
+        if (!depthTexture || depthW !== canvas.width || depthH !== canvas.height) {
+            if (depthTexture) depthTexture.destroy();
+            depthW = canvas.width;
+            depthH = canvas.height;
+            depthTexture = device.createTexture({
+                size: [canvas.width, canvas.height],
+                format: DEPTH_FORMAT,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            });
+        }
+        return depthTexture.createView();
+    }
+
     // frame state, set between begin_frame and end_frame
     let encoder = null;
     let pass = null;
@@ -118,25 +143,30 @@ export async function createGpu(ctx) {
 
         js_gpu_create_pipeline(ptr, size) {
             const d = readDesc(ptr, size, PIPELINE_DESC_INTS, "GpuPipelineDesc");
-            const [shader, stride, step, attributeCount, targetFormat, blend, topology] = d;
+            const [shader, bufferCount] = d;
+            const h = 2 + MAX_VERTEX_BUFFERS * 2;
+            const [attributeCount, targetFormat, blend, topology, depth, cull] = d.slice(h, h + 6);
+            if (bufferCount < 0 || bufferCount > MAX_VERTEX_BUFFERS) fail(`gpu: bad buffer count ${bufferCount}`);
 
-            const vertex = { module: get(shader, "shader"), entryPoint: "vs" };
-            if (stride > 0) {
-                const attributes = [];
-                for (let i = 0; i < attributeCount; i++) {
-                    const a = 7 + i * 3;
-                    attributes.push({
-                        shaderLocation: d[a],
-                        offset: d[a + 1],
-                        format: pick(VERTEX_FORMATS, d[a + 2], "vertex format"),
-                    });
-                }
-                vertex.buffers = [{
-                    arrayStride: stride,
-                    stepMode: pick(STEP_MODES, step, "step mode"),
-                    attributes,
-                }];
+            const buffers = [];
+            for (let b = 0; b < bufferCount; b++) {
+                buffers.push({
+                    arrayStride: d[2 + b * 2],
+                    stepMode: pick(STEP_MODES, d[3 + b * 2], "step mode"),
+                    attributes: [],
+                });
             }
+            for (let i = 0; i < attributeCount; i++) {
+                const a = PIPELINE_HEAD_INTS + i * 4;
+                const slot = d[a];
+                if (slot < 0 || slot >= bufferCount) fail(`gpu: attribute ${i} uses buffer ${slot}, pipeline has ${bufferCount}`);
+                buffers[slot].attributes.push({
+                    shaderLocation: d[a + 1],
+                    offset: d[a + 2],
+                    format: pick(VERTEX_FORMATS, d[a + 3], "vertex format"),
+                });
+            }
+            const vertex = { module: get(shader, "shader"), entryPoint: "vs", buffers };
 
             const target = { format: pick(TEXTURE_FORMATS, targetFormat, "target format") };
             const blendState = pick(BLENDS, blend, "blend");
@@ -146,7 +176,8 @@ export async function createGpu(ctx) {
                 layout: "auto",
                 vertex,
                 fragment: { module: get(shader, "shader"), entryPoint: "fs", targets: [target] },
-                primitive: { topology: pick(TOPOLOGIES, topology, "topology") },
+                primitive: { topology: pick(TOPOLOGIES, topology, "topology"), cullMode: pick(CULL_MODES, cull, "cull mode") },
+                depthStencil: pick(DEPTH_MODES, depth, "depth mode"),
             });
             return add("pipeline", pipeline);
         },
@@ -198,6 +229,12 @@ export async function createGpu(ctx) {
                     storeOp: "store",
                     clearValue: { r, g, b, a: 1 },
                 }],
+                depthStencilAttachment: {
+                    view: depthView(),
+                    depthClearValue: 1,
+                    depthLoadOp: "clear",
+                    depthStoreOp: "discard",
+                },
             });
         },
 

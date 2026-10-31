@@ -40,6 +40,23 @@ real v3_magnitude(V3 v);
 void v3_normalize(V3 *v);
 V3 v3_lerp(V3 a, V3 b, real t);
 
+// math.c, for rendering (f32, not real). own trig because there is no libc
+#define F32_PI 3.14159265f
+f32 f32_sin(f32 x);
+f32 f32_cos(f32 x);
+f32 f32_tan(f32 x);
+
+// 4x4 matrix, column major (m[column * 4 + row]), the layout WGSL's mat4x4f expects
+typedef struct {
+    f32 m[16];
+} M4;
+
+M4 m4_identity(void);
+M4 m4_multiplied(M4 a, M4 b); // a * b: applies b first, then a
+// right handed, camera looks down -z. depth goes 0 at near to 1 at far (WebGPU)
+M4 m4_perspective(f32 fov_y, f32 aspect, f32 near, f32 far);
+M4 m4_look_at(V3 eye, V3 target, V3 up);
+
 // rand.c. xorshift32, same seed = same numbers
 void rand_seed(u32 seed);
 u32 rand_u32(void);

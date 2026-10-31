@@ -14,10 +14,18 @@ enum {
     KEY_A,
     KEY_S,
     KEY_D,
+    KEY_Q,
+    KEY_E,
+    KEY_SHIFT, // either shift key
 };
 
 // down = held right now. pressed = went down since the last frame (key repeat does not count)
 i32 plat_key_down(i32 key);
 i32 plat_key_pressed(i32 key);
+
+// mouse movement in pixels since the last frame, only while the mouse is locked (click the canvas)
+i32 plat_mouse_locked(void);
+f32 plat_mouse_dx(void);
+f32 plat_mouse_dy(void); // positive = down
 
 #endif
