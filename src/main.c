@@ -20,6 +20,10 @@
 #include "render/mesh.c"
 #include "render/render.c"
 
+#include "demo/demo.h"
+#include "demo/balls.c"
+#include "demo/demo.c"
+
 #include "game/game.h"
 #include "game/game.c"
 

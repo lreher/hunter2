@@ -12,13 +12,13 @@ Goal: split the code into a clear, extensible structure. Know where to look for 
 - web/platform.js: everything JS (webgpu setup, shader, pipeline, imports for C)
 
 ## Decisions
-- Layers (C): base <- platform <- render <- game. Each layer only uses layers below.
+- Layers (C): base <- platform <- render <- demo <- game. Each layer only uses layers below. phys depends on base only. demo/ holds one file per demo (Demo data and DEMO_* ids in demo/demo.h, table and switch dispatch in demo/demo.c, no function pointers: hot step and draw are FORCE_INLINE, Chrome runs them much slower as separate functions), game/ runs the loop, camera and shared HUD (2026-10-31).
 - Each folder has one public header (e.g. render/render.h). Others include only that.
 - Game never touches JS or WebGPU directly.
 - src/main.c only exports game_init, game_frame.
 - JS split by browser feature: web/main.js (load, loop), gpu.js, input.js, audio.js, ui.js (debug panel and title, HTML over the canvas, 2026-10-31).
 - Build: unity build (main.c includes each .c). Revisit if it grows too big.
-- Naming: functions module_verb_noun, types PascalCase, macros UPPER_SNAKE, locals and fields snake_case (user: case does not matter, consistency does), JS imports js_, JS code camelCase. Prefixes: base topics (str_, mem_, log_, v3_), plat_, render_, game has none. Private statics prefixed too.
+- Naming: functions module_verb_noun, types PascalCase, macros UPPER_SNAKE, locals and fields snake_case (user: case does not matter, consistency does), JS imports js_, JS code camelCase. Prefixes: base topics (str_, mem_, log_, v3_), plat_, render_, demo_ (each demo file uses its own, e.g. balls_), game has none. Private statics prefixed too.
 - Memory: arenas (perm, level, frame) + pools for come-and-go things (entities, particles). No malloc. Debug counters for arena usage.
 - Rendering: B. Thin JS bridge mirrors WebGPU with integer handles. Shaders, pipelines, batching all in C (render/). Batching is what matters for perf. Can upgrade to a command buffer (one crossing per frame) later if crossings show up.
 - Frame timer from day one: CPU ms per frame, draw calls, C->JS crossings.

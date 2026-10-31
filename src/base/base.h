@@ -17,6 +17,9 @@ typedef f32 real;
 #define real_sqrt __builtin_sqrtf
 #define REAL_MAX 3.402823466e+38f
 
+// Forces a function into its caller. Chrome runs the hot demo loops much slower as their own functions (see focus/physics-engine.md)
+#define FORCE_INLINE __attribute__((always_inline)) static inline
+
 typedef struct {
     real x, y, z;
 } V3;
@@ -42,6 +45,7 @@ V3 v3_lerp(V3 a, V3 b, real t);
 
 // math.c, for rendering (f32, not real). own trig because there is no libc
 #define F32_PI 3.14159265f
+
 f32 f32_sin(f32 x);
 f32 f32_cos(f32 x);
 f32 f32_tan(f32 x);
