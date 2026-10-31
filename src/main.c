@@ -8,6 +8,7 @@
 #include "phys/phys.h"
 #include "phys/particle.c"
 #include "phys/collide.c"
+#include "phys/force.c"
 
 #include "platform/platform.h"
 #include "platform/platform.c"

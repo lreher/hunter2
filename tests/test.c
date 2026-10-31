@@ -6,6 +6,7 @@
 #include "phys/phys.h"
 #include "phys/particle.c"
 #include "phys/collide.c"
+#include "phys/force.c"
 
 __attribute__((import_module("env"), import_name("t_fail"))) void t_fail(const char *expr, i32 len, i32 line);
 
@@ -93,6 +94,82 @@ static void test_forces(void) {
     particle_add_force(&wall, v3_create(1000, 0, 0));
     particle_integrate(&wall, 1);
     NEAR(wall.velocity.x, 0);
+}
+
+static void test_force_gravity(void) {
+    ForceGen g = force_gravity(v3_create(0, -10, 0));
+    Particle p = {0};
+    p.damping = 1;
+    particle_set_mass(&p, 2);
+    force_update(&g, &p, 1);
+    NEAR(p.force_accum.y, -20);          // mass * gravity
+    particle_integrate(&p, 1);
+    NEAR(p.velocity.y, -10);             // same acceleration for any mass
+
+    Particle wall = {0};                 // infinite mass gets no force (get_mass would be REAL_MAX)
+    force_update(&g, &wall, 1);
+    NEAR(wall.force_accum.y, 0);
+}
+
+static void test_force_drag(void) {
+    ForceGen d = force_drag(1, 0.5f);
+    Particle p = {0};
+    p.velocity = v3_create(0, 0, -4);
+    force_update(&d, &p, 1);
+    NEAR(p.force_accum.z, 12);           // against the motion: 1 * 4 + 0.5 * 16
+    NEAR(p.force_accum.x, 0);
+
+    Particle still = {0};                // at rest: zero force, not NaN
+    force_update(&d, &still, 1);
+    CHECK(still.force_accum.x == 0 && still.force_accum.y == 0 && still.force_accum.z == 0);
+
+    // falling with gravity and k2 drag tops out at sqrt(m g / k2) = sqrt(1 * 10 / 0.1) = 10 m/s
+    ForceGen g = force_gravity(v3_create(0, -10, 0));
+    ForceGen air = force_drag(0, 0.1f);
+    Particle ball = {0};
+    ball.damping = 1;
+    particle_set_mass(&ball, 1);
+    for (i32 i = 0; i < 60 * 20; i++) {
+        force_update(&g, &ball, 1.0f / 60.0f);
+        force_update(&air, &ball, 1.0f / 60.0f);
+        particle_integrate(&ball, 1.0f / 60.0f);
+    }
+    CHECK(near(ball.velocity.y, -10, 0.01f));
+}
+
+static void test_force_registry(void) {
+    ForceGen g = force_gravity(v3_create(0, -10, 0));
+    ForceGen d = force_drag(1, 0);
+    Particle a = {0}, b = {0};
+    particle_set_mass(&a, 1);
+    particle_set_mass(&b, 3);
+    b.velocity = v3_create(2, 0, 0);
+
+    ForceReg regs[3];
+    ForceRegistry r = {regs, 0, 3};
+    force_registry_add(&r, &a, &g);
+    force_registry_add(&r, &b, &g);       // one generator shared by two particles
+    force_registry_add(&r, &b, &d);
+    force_registry_update(&r, 1);
+    NEAR(a.force_accum.y, -10);
+    NEAR(b.force_accum.y, -30);
+    NEAR(b.force_accum.x, -2);           // forces on b add up (D'Alembert)
+
+    force_registry_remove(&r, &a, &g);   // first one: the last pair moves into its place
+    CHECK(r.count == 2);
+    CHECK(r.regs[0].particle == &b && r.regs[0].gen == &d);
+    force_registry_remove(&r, &a, &d);   // not registered: no effect
+    CHECK(r.count == 2);
+
+    particle_clear_force_accum(&a);
+    particle_clear_force_accum(&b);
+    force_registry_update(&r, 1);
+    NEAR(a.force_accum.y, 0);            // a got nothing
+    NEAR(b.force_accum.y, -30);
+    NEAR(b.force_accum.x, -2);
+
+    force_registry_clear(&r);
+    CHECK(r.count == 0);
 }
 
 static void test_mass(void) {
@@ -334,6 +411,9 @@ __attribute__((export_name("run_tests"))) i32 run_tests(void) {
     test_free_fall();
     test_small_bounce_settles();
     test_forces();
+    test_force_gravity();
+    test_force_drag();
+    test_force_registry();
     test_mass();
     test_damping();
     test_box();

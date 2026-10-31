@@ -34,4 +34,30 @@ real particle_bounce_factor(real impact_speed, real restitution);
 // Returns 1 if they were touching, 0 if not.
 i32 particle_collide_spheres(Particle *a, real radius_a, Particle *b, real radius_b, real restitution);
 
+// Force generators (ch 5): a force that is asked every step to add itself to a particle.
+// A kind and a switch, not function pointers, so the force math can be inlined into the loop.
+// No per particle data, so one generator can serve any number of particles.
+typedef enum { FORCE_GRAVITY, FORCE_DRAG } ForceKind;
+typedef struct {
+    ForceKind kind;
+    union {
+        V3 gravity;                   // FORCE_GRAVITY: acceleration, scaled by mass into a force
+        struct { real k1, k2; } drag; // FORCE_DRAG: k1 * speed + k2 * speed^2, against the velocity
+    };
+} ForceGen;
+
+ForceGen force_gravity(V3 gravity);
+ForceGen force_drag(real k1, real k2);
+FORCE_INLINE void force_update(ForceGen *g, Particle *p, real dt); // adds g's force to p for this step
+
+// Which generator acts on which particle. Run force_registry_update before integrating.
+// The caller owns the array, sized for its needs: {regs, 0, cap}. The registry never owns particles or generators.
+typedef struct { Particle *particle; ForceGen *gen; } ForceReg;
+typedef struct { ForceReg *regs; i32 count, cap; } ForceRegistry;
+
+void force_registry_add(ForceRegistry *r, Particle *p, ForceGen *g);    // traps when full
+void force_registry_remove(ForceRegistry *r, Particle *p, ForceGen *g); // no effect if the pair is not there
+void force_registry_clear(ForceRegistry *r);
+FORCE_INLINE void force_registry_update(ForceRegistry *r, real dt);
+
 #endif
