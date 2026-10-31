@@ -31,8 +31,8 @@ typedef struct {
 static Camera game_camera = {{WORLD_W / 2, 7.0f, 16.0f}, 0, -0.15f};
 
 #define BALL_COUNT 80
-#define BALL_BOUNCE 0.9f
-#define WALL_BOUNCE 0.85f
+#define BALL_BOUNCE 0.6f
+#define WALL_BOUNCE 0.5f
 #define SOLVER_PASSES 4 // collisions fix each other up, a few passes keeps piles from sinking into each other
 
 typedef struct {

@@ -1,12 +1,15 @@
 #include "base/base.h"
 #include "phys/phys.h"
 
+// Semi-implicit Euler: velocity first, then position with the new velocity.
+// The book (ch 3, book page 51) moves position with the old velocity. Under gravity that adds a little
+// energy every step, and small bounces never die out. This order loses a little instead, so things settle.
 void particle_integrate(Particle *p, real dt) {
-    v3_add_scaled(&p->position, p->velocity, dt);
-
     V3 acceleration = p->acceleration;
     v3_add_scaled(&acceleration, p->force_accum, p->inverse_mass);
     v3_add_scaled(&p->velocity, acceleration, dt);
+
+    v3_add_scaled(&p->position, p->velocity, dt);
 
     v3_multiply(&p->velocity, p->damping);
     particle_clear_force_accum(p);

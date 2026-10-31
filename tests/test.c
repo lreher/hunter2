@@ -59,7 +59,23 @@ static void test_free_fall(void) {
     p.damping = 1;
     for (i32 i = 0; i < 60; i++) particle_integrate(&p, 1.0f / 60.0f);
     NEAR(p.velocity.y, -10);
-    NEAR(p.position.y, 10 - 10.0f * 1770.0f / 3600.0f); // sum of k*dt*g*dt, k = 0..59
+    NEAR(p.position.y, 10 - 10.0f * 1830.0f / 3600.0f); // sum of k*dt*g*dt, k = 1..60 (velocity is updated first)
+}
+
+// the book's integrator gained energy each step, so a 10 cm hop with restitution 0.85 went on forever
+static void test_small_bounce_settles(void) {
+    Particle p = {0};
+    p.position = v3_create(0, 0.6f, 0);
+    p.acceleration = v3_create(0, -9.8f, 0);
+    p.damping = 1;
+    particle_set_mass(&p, 1);
+    V3 lo = v3_create(-10, 0, -10), hi = v3_create(10, 10, 10);
+    for (i32 i = 0; i < 60 * 10; i++) {
+        particle_integrate(&p, 1.0f / 60.0f);
+        particle_collide_box(&p, 0.5f, lo, hi, 0.85f, 0);
+    }
+    NEAR(p.position.y, 0.5f);
+    NEAR(p.velocity.y, 0);
 }
 
 static void test_forces(void) {
@@ -312,6 +328,7 @@ __attribute__((export_name("run_tests"))) i32 run_tests(void) {
     failures = 0;
     test_vectors();
     test_free_fall();
+    test_small_bounce_settles();
     test_forces();
     test_mass();
     test_damping();
