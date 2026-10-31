@@ -280,35 +280,39 @@ static void test_trig(void) {
     CHECK(worst < 0.00001f);                 // sin^2 + cos^2 = 1 everywhere
 }
 
-// m * (x, y, z, 1), divided by w
-static V3 transform_point(M4 m, V3 p) {
-    f32 out[4];
-    for (i32 row = 0; row < 4; row++) out[row] = m.m[row] * p.x + m.m[4 + row] * p.y + m.m[8 + row] * p.z + m.m[12 + row];
-    return v3_create(out[0] / out[3], out[1] / out[3], out[2] / out[3]);
-}
-
 static void test_m4(void) {
     M4 a = m4_identity();
     a.m[12] = 5;                             // move x by 5
     M4 b = m4_identity();
     b.m[0] = 2;                              // scale x by 2
-    V3 p = transform_point(m4_multiplied(a, b), v3_create(1, 0, 0));
+    V3 p = m4_transform_point(m4_multiplied(a, b), v3_create(1, 0, 0));
     NEAR(p.x, 7);                            // scaled first, then moved
-    p = transform_point(m4_multiplied(b, a), v3_create(1, 0, 0));
+    p = m4_transform_point(m4_multiplied(b, a), v3_create(1, 0, 0));
     NEAR(p.x, 12);                           // moved first, then scaled
 
     M4 view = m4_look_at(v3_create(0, 0, 5), v3_zero(), v3_create(0, 1, 0));
-    p = transform_point(view, v3_zero());
+    p = m4_transform_point(view, v3_zero());
     NEAR(p.z, -5);                           // the target is 5 in front, down -z
-    p = transform_point(view, v3_create(1, 2, 0));
+    p = m4_transform_point(view, v3_create(1, 2, 0));
     NEAR(p.x, 1);                            // right stays right
     NEAR(p.y, 2);                            // up stays up
 
     M4 proj = m4_perspective(F32_PI / 2, 2, 1, 100);
-    NEAR(transform_point(proj, v3_create(0, 0, -1)).z, 0);   // near plane -> depth 0
-    NEAR(transform_point(proj, v3_create(0, 0, -100)).z, 1); // far plane -> depth 1
-    NEAR(transform_point(proj, v3_create(0, 3, -3)).y, 1);   // 45 degrees up is the top edge (fov 90)
-    NEAR(transform_point(proj, v3_create(6, 0, -3)).x, 1);   // aspect 2: twice as wide
+    NEAR(m4_transform_point(proj, v3_create(0, 0, -1)).z, 0);   // near plane -> depth 0
+    NEAR(m4_transform_point(proj, v3_create(0, 0, -100)).z, 1); // far plane -> depth 1
+    NEAR(m4_transform_point(proj, v3_create(0, 3, -3)).y, 1);   // 45 degrees up is the top edge (fov 90)
+    NEAR(m4_transform_point(proj, v3_create(6, 0, -3)).x, 1);   // aspect 2: twice as wide
+
+    M4 ortho = m4_orthographic(-2, 6, 1, 3, 1, 11);
+    p = m4_transform_point(ortho, v3_create(-2, 1, -1));
+    NEAR(p.x, -1);                           // left, bottom, near corner
+    NEAR(p.y, -1);
+    NEAR(p.z, 0);
+    p = m4_transform_point(ortho, v3_create(6, 3, -11));
+    NEAR(p.x, 1);                            // right, top, far corner
+    NEAR(p.y, 1);
+    NEAR(p.z, 1);
+    NEAR(m4_transform_point(ortho, v3_create(2, 2, -50)).x, 0); // no perspective: distance does not move x
 }
 
 static void test_str(void) {

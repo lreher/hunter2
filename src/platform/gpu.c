@@ -52,10 +52,20 @@ void plat_gpu_write_texture(GpuHandle texture, const void *data, i32 w, i32 h, i
     js_gpu_write_texture(texture, data, w, h, bytes_per_row);
 }
 
-void plat_gpu_begin_frame(f32 r, f32 g, f32 b) {
+void plat_gpu_begin_frame(void) {
     plat_gpu_stats = (PlatGpuStats){0};
     plat_gpu_stats.calls++;
-    js_gpu_begin_frame(r, g, b);
+    js_gpu_begin_frame();
+}
+
+void plat_gpu_begin_depth_pass(GpuHandle depth_texture) {
+    plat_gpu_stats.calls++;
+    js_gpu_begin_depth_pass(depth_texture);
+}
+
+void plat_gpu_begin_screen_pass(f32 r, f32 g, f32 b) {
+    plat_gpu_stats.calls++;
+    js_gpu_begin_screen_pass(r, g, b);
 }
 
 void plat_gpu_set_pipeline(GpuHandle pipeline) {

@@ -3,13 +3,14 @@
 import fs from "fs";
 const root = new URL("../../web/", import.meta.url).pathname;
 export const SW = 1600, SH = 900;
-export const SPHERE_VERTICES = 15360; // icosphere, 4 subdivisions: 5120 triangles
+export const SPHERE_VERTEX_COUNTS = [240, 960, 3840, 15360]; // icosphere levels of detail, 1 to 4 subdivisions
 
 const writes = new WeakMap(); // fake buffer -> last data written to it
-const slots = [];             // fake buffers bound to vertex slots
+const slots = [];             // {buffer, offset} bound to vertex slots
+let depthPass = false;        // draws in a depth pass (the shadow map) are not what the camera sees
 export const draws = [];      // "vertexCount,instanceCount" per draw call
-export let spheres = [];      // {x, y, z, r} from the last sphere draw
-export let camera = null;     // floats last written to the scene uniform (view_proj, light, eye, spheres)
+export let spheres = [];      // {x, y, z, r} drawn in the last screen pass, all levels of detail
+export let camera = null;     // floats last written to the scene uniform (view_proj, light, eye, ...)
 const uniforms = new WeakSet(); // fake buffers made with the UNIFORM usage flag
 
 const fake = (name) => new Proxy(function () {}, {
@@ -27,13 +28,19 @@ const fake = (name) => new Proxy(function () {}, {
       writes.set(args[0], data);
       if (uniforms.has(args[0])) camera = data;
     }
-    if (m === "setVertexBuffer") slots[args[0]] = args[1];
+    if (m === "beginRenderPass") {
+      depthPass = args[0].colorAttachments.length === 0;
+      if (!depthPass) spheres = [];
+    }
+    if (m === "setVertexBuffer") slots[args[0]] = { buffer: args[1], offset: args[2] ?? 0 };
     if (m === "draw") {
       draws.push(args.join(","));
-      if (args[0] === SPHERE_VERTICES) {
-        const d = writes.get(slots[1]);
-        spheres = [];
-        for (let i = 0; i < args[1]; i++) spheres.push({ x: d[i * 16], y: d[i * 16 + 1], z: d[i * 16 + 2], r: d[i * 16 + 4] });
+      if (!depthPass && SPHERE_VERTEX_COUNTS.includes(args[0])) {
+        const d = writes.get(slots[1].buffer), first = slots[1].offset / 4;
+        for (let i = 0; i < args[1]; i++) {
+          const o = first + i * 16;
+          spheres.push({ x: d[o], y: d[o + 1], z: d[o + 2], r: d[o + 4] });
+        }
       }
     }
     const result = fake(name + "()");

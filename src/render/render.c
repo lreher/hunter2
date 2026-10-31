@@ -22,6 +22,7 @@ static GpuHandle render_pipeline;
 static GpuHandle render_bind_group;
 static GpuHandle render_uniforms;  // screen size
 static GpuHandle render_instances; // quads for the frame
+static f32 render_clear[3];       // screen color, cleared in render_end
 
 void render_init(void) {
     GpuHandle shader = plat_gpu_create_shader(render_shader_quad);
@@ -59,13 +60,13 @@ void render_init(void) {
     render_mesh_init();
 }
 
+// draws only collect into batches. the GPU work all happens in render_end
 void render_begin(f32 r, f32 g, f32 b) {
     render_quad_count = 0;
+    render_clear[0] = r;
+    render_clear[1] = g;
+    render_clear[2] = b;
     render_mesh_begin();
-    plat_gpu_begin_frame(r, g, b);
-
-    f32 screen[2] = {(f32)plat_screen_width(), (f32)plat_screen_height()};
-    plat_gpu_write_buffer(render_uniforms, 0, screen, sizeof(screen));
 }
 
 // returns 0 when the batch is full
@@ -128,8 +129,14 @@ void render_draw_text_centered(const char *s, f32 scale, f32 r, f32 g, f32 b) {
     }
 }
 
+// shadow map first (a depth pass), then the screen: meshes, lines, then 2D on top
 void render_end(void) {
-    render_mesh_end();
+    plat_gpu_begin_frame();
+    f32 screen[2] = {(f32)plat_screen_width(), (f32)plat_screen_height()};
+    plat_gpu_write_buffer(render_uniforms, 0, screen, sizeof(screen));
+    render_mesh_shadow_pass();
+    plat_gpu_begin_screen_pass(render_clear[0], render_clear[1], render_clear[2]);
+    render_mesh_draw();
     if (render_quad_count > 0) {
         plat_gpu_write_buffer(render_instances, 0, render_quads, render_quad_count * sizeof(Quad));
         plat_gpu_set_pipeline(render_pipeline);

@@ -56,6 +56,9 @@ M4 m4_multiplied(M4 a, M4 b); // a * b: applies b first, then a
 // right handed, camera looks down -z. depth goes 0 at near to 1 at far (WebGPU)
 M4 m4_perspective(f32 fov_y, f32 aspect, f32 near, f32 far);
 M4 m4_look_at(V3 eye, V3 target, V3 up);
+// same axes and depth range as m4_perspective, without the perspective (parallel rays, for the sun)
+M4 m4_orthographic(f32 left, f32 right, f32 bottom, f32 top, f32 near, f32 far);
+V3 m4_transform_point(M4 m, V3 p); // m * (p, 1), divided by w
 
 // rand.c. xorshift32, same seed = same numbers
 void rand_seed(u32 seed);

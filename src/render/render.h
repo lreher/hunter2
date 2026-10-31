@@ -14,7 +14,8 @@ void render_draw_text(const char *s, f32 x, f32 y, f32 scale, f32 r, f32 g, f32 
 void render_draw_text_centered(const char *s, f32 scale, f32 r, f32 g, f32 b);
 
 // 3D, world meters, y up. Drawn with depth, before the 2D quads, so 2D stays on top.
-void render_set_camera(M4 view_projection, V3 eye); // call once per frame, after render_begin
+void render_set_camera(M4 view_projection, V3 eye); // call once per frame, after render_begin, before drawing
+void render_set_shadow_area(V3 min, V3 max);        // box that gets sun shadows. tighter = sharper shadows
 void render_draw_sphere(V3 center, f32 radius, f32 r, f32 g, f32 b);
 void render_draw_box(V3 center, V3 half_size, f32 r, f32 g, f32 b); // axis aligned for now, rotation comes with rigid bodies
 void render_draw_line(V3 from, V3 to, f32 r, f32 g, f32 b);         // 1 pixel wide (WebGPU lines)

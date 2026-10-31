@@ -214,6 +214,7 @@ static void game_draw(f32 alpha, f32 seconds) {
 
     render_begin(0.02f, 0.02f, 0.04f);
     render_set_camera(m4_multiplied(projection, view), eye);
+    render_set_shadow_area(v3_create(0, -0.1f, -WORLD_D / 2), v3_create(WORLD_W, WORLD_H, WORLD_D / 2)); // the box, floor slab included
 
     // floor: a thin slab just under y = 0
     render_draw_box(v3_create(WORLD_W / 2, -0.05f, 0), v3_create(WORLD_W / 2, 0.05f, WORLD_D / 2), 0.20f, 0.24f, 0.34f);

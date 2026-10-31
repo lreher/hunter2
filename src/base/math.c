@@ -128,6 +128,23 @@ M4 m4_perspective(f32 fov_y, f32 aspect, f32 near, f32 far) {
     return r;
 }
 
+M4 m4_orthographic(f32 left, f32 right, f32 bottom, f32 top, f32 near, f32 far) {
+    M4 r = m4_identity();
+    r.m[0] = 2 / (right - left);
+    r.m[5] = 2 / (top - bottom);
+    r.m[10] = 1 / (near - far);
+    r.m[12] = -(right + left) / (right - left);
+    r.m[13] = -(top + bottom) / (top - bottom);
+    r.m[14] = near / (near - far);
+    return r;
+}
+
+V3 m4_transform_point(M4 m, V3 p) {
+    f32 out[4];
+    for (i32 row = 0; row < 4; row++) out[row] = m.m[row] * p.x + m.m[4 + row] * p.y + m.m[8 + row] * p.z + m.m[12 + row];
+    return v3_create(out[0] / out[3], out[1] / out[3], out[2] / out[3]);
+}
+
 M4 m4_look_at(V3 eye, V3 target, V3 up) {
     V3 forward = v3_subtracted(target, eye);
     v3_normalize(&forward);

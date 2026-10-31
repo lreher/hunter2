@@ -16,14 +16,20 @@ const BIND_GROUP_DESC_INTS = 3 + MAX_BIND_ENTRIES * 3;
 const VERTEX_FORMATS = ["float32x2", "float32x3", "float32x4"];
 const STEP_MODES = ["vertex", "instance"];
 const TOPOLOGIES = ["triangle-list", "triangle-strip", "line-list"];
-const CULL_MODES = ["none", "back"];
-const DEPTH_FORMAT = "depth24plus";
+const CULL_MODES = ["none", "back", "front"];
+const DEPTH_FORMAT = "depth24plus";     // the screen's depth buffer
+const DEPTH_TEXTURE_FORMAT = "depth32float"; // GPU_FORMAT_DEPTH textures, for depth passes
 const SAMPLES = 4; // MSAA: smooth edges on spheres and lines. every pipeline and the frame targets use it
 const DEPTH_MODES = [
-    { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: "always" },
-    { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: "less" },
+    { depthWriteEnabled: false, depthCompare: "always" },
+    { depthWriteEnabled: true, depthCompare: "less" },
 ];
-const FILTERS = ["nearest", "linear"];
+const SAMPLERS = [
+    { magFilter: "nearest", minFilter: "nearest" },
+    { magFilter: "linear", minFilter: "linear" },
+    { magFilter: "linear", minFilter: "linear", compare: "less-equal" }, // 1 where the depth given is not behind the texture's
+];
+const FORMAT_DEPTH = 3;
 const BLENDS = [
     undefined,
     {
@@ -66,7 +72,7 @@ export async function createGpu(ctx) {
     window.addEventListener("resize", resize);
     console.log("[js] webgpu ready", screenFormat, `${canvas.width}x${canvas.height}`);
 
-    const TEXTURE_FORMATS = ["r8unorm", "rgba8unorm", screenFormat];
+    const TEXTURE_FORMATS = ["r8unorm", "rgba8unorm", screenFormat, DEPTH_TEXTURE_FORMAT];
 
     // handle table
     const objects = [null];
@@ -105,11 +111,18 @@ export async function createGpu(ctx) {
         depthTexture = make(DEPTH_FORMAT);
     }
 
-    // frame state, set between begin_frame and end_frame
+    // frame state: encoder between begin_frame and end_frame, pass between begin_*_pass and the next pass or end_frame
     let encoder = null;
     let pass = null;
+    function needFrame(what) {
+        if (!encoder) fail(`gpu: ${what} called outside begin_frame/end_frame`);
+    }
     function needPass(what) {
-        if (!pass) fail(`gpu: ${what} called outside begin_frame/end_frame`);
+        if (!pass) fail(`gpu: ${what} called outside a pass`);
+    }
+    function endPass() {
+        if (pass) pass.end();
+        pass = null;
     }
 
     return {
@@ -138,8 +151,7 @@ export async function createGpu(ctx) {
         },
 
         js_gpu_create_sampler(filter) {
-            const mode = pick(FILTERS, filter, "filter");
-            return add("sampler", device.createSampler({ magFilter: mode, minFilter: mode }));
+            return add("sampler", device.createSampler(pick(SAMPLERS, filter, "filter")));
         },
 
         js_gpu_create_pipeline(ptr, size) {
@@ -168,20 +180,22 @@ export async function createGpu(ctx) {
                 });
             }
             const vertex = { module: get(shader, "shader"), entryPoint: "vs", buffers };
+            const depthOnly = targetFormat === FORMAT_DEPTH; // for depth passes: no fragment shader, no MSAA
 
-            const target = { format: pick(TEXTURE_FORMATS, targetFormat, "target format") };
-            const blendState = pick(BLENDS, blend, "blend");
-            if (blendState) target.blend = blendState;
-
-            const pipeline = device.createRenderPipeline({
+            const desc = {
                 layout: "auto",
                 vertex,
-                fragment: { module: get(shader, "shader"), entryPoint: "fs", targets: [target] },
                 primitive: { topology: pick(TOPOLOGIES, topology, "topology"), cullMode: pick(CULL_MODES, cull, "cull mode") },
-                depthStencil: pick(DEPTH_MODES, depth, "depth mode"),
-                multisample: { count: SAMPLES },
-            });
-            return add("pipeline", pipeline);
+                depthStencil: { ...pick(DEPTH_MODES, depth, "depth mode"), format: depthOnly ? DEPTH_TEXTURE_FORMAT : DEPTH_FORMAT },
+                multisample: { count: depthOnly ? 1 : SAMPLES },
+            };
+            if (!depthOnly) {
+                const target = { format: pick(TEXTURE_FORMATS, targetFormat, "target format") };
+                const blendState = pick(BLENDS, blend, "blend");
+                if (blendState) target.blend = blendState;
+                desc.fragment = { module: get(shader, "shader"), entryPoint: "fs", targets: [target] };
+            }
+            return add("pipeline", device.createRenderPipeline(desc));
         },
 
         js_gpu_create_bind_group(ptr, size) {
@@ -194,7 +208,7 @@ export async function createGpu(ctx) {
                 const binding = d[e];
                 const type = d[e + 1];
                 const handle = d[e + 2];
-                if (type === 0) entries.push({ binding, resource: { buffer: get(handle, "buffer") } });
+                if (type === 0 || type === 3) entries.push({ binding, resource: { buffer: get(handle, "buffer") } }); // uniform, storage
                 else if (type === 1) entries.push({ binding, resource: get(handle, "texture").createView() });
                 else if (type === 2) entries.push({ binding, resource: get(handle, "sampler") });
                 else fail(`gpu: unknown bind type ${type}`);
@@ -221,9 +235,28 @@ export async function createGpu(ctx) {
             device.queue.writeTexture({ texture: get(handle, "texture") }, data, { bytesPerRow }, [w, h]);
         },
 
-        js_gpu_begin_frame(r, g, b) {
-            if (pass) fail("gpu: begin_frame called twice");
+        js_gpu_begin_frame() {
+            if (encoder) fail("gpu: begin_frame called twice");
             encoder = device.createCommandEncoder();
+        },
+
+        js_gpu_begin_depth_pass(handle) {
+            needFrame("begin_depth_pass");
+            endPass();
+            pass = encoder.beginRenderPass({
+                colorAttachments: [],
+                depthStencilAttachment: {
+                    view: get(handle, "texture").createView(),
+                    depthClearValue: 1,
+                    depthLoadOp: "clear",
+                    depthStoreOp: "store", // later passes read it
+                },
+            });
+        },
+
+        js_gpu_begin_screen_pass(r, g, b) {
+            needFrame("begin_screen_pass");
+            endPass();
             updateTargets();
             pass = encoder.beginRenderPass({
                 colorAttachments: [{
@@ -263,10 +296,9 @@ export async function createGpu(ctx) {
         },
 
         js_gpu_end_frame() {
-            needPass("end_frame");
-            pass.end();
+            needFrame("end_frame");
+            endPass();
             device.queue.submit([encoder.finish()]);
-            pass = null;
             encoder = null;
         },
     };

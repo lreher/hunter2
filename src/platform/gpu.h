@@ -13,19 +13,23 @@ typedef i32 GpuHandle; // 0 = invalid
 #define GPU_BUFFER_COPY_DST 8
 #define GPU_BUFFER_VERTEX 32
 #define GPU_BUFFER_UNIFORM 64
+#define GPU_BUFFER_STORAGE 128
 #define GPU_TEXTURE_COPY_DST 2
 #define GPU_TEXTURE_BINDING 4
+#define GPU_TEXTURE_RENDER_ATTACHMENT 16
 
-enum { GPU_FORMAT_R8, GPU_FORMAT_RGBA8, GPU_FORMAT_SCREEN };
+// DEPTH: a depth texture to draw into in a depth pass, then read with a SHADOW sampler.
+// a pipeline with target_format DEPTH only writes depth (no fs, no MSAA), for depth passes
+enum { GPU_FORMAT_R8, GPU_FORMAT_RGBA8, GPU_FORMAT_SCREEN, GPU_FORMAT_DEPTH };
 enum { GPU_VERTEX_FLOAT32X2, GPU_VERTEX_FLOAT32X3, GPU_VERTEX_FLOAT32X4 };
 enum { GPU_STEP_VERTEX, GPU_STEP_INSTANCE };
 enum { GPU_TOPOLOGY_TRIANGLE_LIST, GPU_TOPOLOGY_TRIANGLE_STRIP, GPU_TOPOLOGY_LINE_LIST };
 enum { GPU_BLEND_NONE, GPU_BLEND_ALPHA, GPU_BLEND_ADDITIVE };
-enum { GPU_FILTER_NEAREST, GPU_FILTER_LINEAR };
-enum { GPU_BIND_UNIFORM, GPU_BIND_TEXTURE, GPU_BIND_SAMPLER };
+enum { GPU_FILTER_NEAREST, GPU_FILTER_LINEAR, GPU_FILTER_SHADOW }; // SHADOW: linear, compares depth (sampler_comparison)
+enum { GPU_BIND_UNIFORM, GPU_BIND_TEXTURE, GPU_BIND_SAMPLER, GPU_BIND_STORAGE }; // STORAGE: read only storage buffer
 // every frame has a depth buffer. OFF draws over everything (2D overlay), ON tests and writes it (3D)
 enum { GPU_DEPTH_OFF, GPU_DEPTH_ON };
-enum { GPU_CULL_NONE, GPU_CULL_BACK }; // BACK skips triangles facing away (counter clockwise = front)
+enum { GPU_CULL_NONE, GPU_CULL_BACK, GPU_CULL_FRONT }; // BACK skips triangles facing away (counter clockwise = front)
 
 // Descriptors are plain structs of i32 that JS reads straight from wasm memory.
 // JS checks the size, so a layout mismatch fails loudly.
@@ -92,8 +96,10 @@ void plat_gpu_destroy(GpuHandle h);
 void plat_gpu_write_buffer(GpuHandle buffer, i32 offset, const void *data, i32 size);
 void plat_gpu_write_texture(GpuHandle texture, const void *data, i32 w, i32 h, i32 bytes_per_row);
 
-// one frame = clear the screen and depth buffer, then draw into it
-void plat_gpu_begin_frame(f32 r, f32 g, f32 b);
+// one frame = one or more passes, draws go to the open pass. each begin_*_pass ends the pass before it
+void plat_gpu_begin_frame(void);
+void plat_gpu_begin_depth_pass(GpuHandle depth_texture); // clears it to 1, only DEPTH pipelines draw here
+void plat_gpu_begin_screen_pass(f32 r, f32 g, f32 b);    // clears the screen and its depth buffer
 void plat_gpu_set_pipeline(GpuHandle pipeline);
 void plat_gpu_set_bind_group(i32 group, GpuHandle bind_group);
 void plat_gpu_set_vertex_buffer(i32 slot, GpuHandle buffer, i32 offset);
