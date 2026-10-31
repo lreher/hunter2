@@ -1,0 +1,15 @@
+# build outputs, made by ./build.sh and ./test.sh
+web/game.wasm
+tests/test.wasm
+
+# the book is copyrighted: keep it out of git, copy it to a new machine by hand
+*.pdf
+reference/millington.txt
+reference/contents.txt
+
+# the book's source code (Cyclone, MIT), a local clone for quick lookups:
+# git clone https://github.com/idmillington/cyclone-physics.git reference/cyclone-physics
+reference/cyclone-physics/
+
+# macOS
+.DS_Store
