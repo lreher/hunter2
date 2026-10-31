@@ -25,3 +25,15 @@ i32 plat_screen_height(void) {
 f64 plat_now_ms(void) {
     return js_now_ms();
 }
+
+void plat_ui_slider(const char *name, f32 min, f32 max, f32 step, f32 *value) {
+    js_ui_slider(name, str_len(name), min, max, step, value);
+}
+
+void plat_ui_title(const char *s) {
+    js_ui_title(s, str_len(s));
+}
+
+i32 plat_ui_title_bottom(void) {
+    return js_ui_title_bottom();
+}

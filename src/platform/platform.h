@@ -21,6 +21,11 @@ IMPORT("js_mouse_locked") i32 js_mouse_locked(void);
 IMPORT("js_mouse_dx") f64 js_mouse_dx(void);
 IMPORT("js_mouse_dy") f64 js_mouse_dy(void);
 
+// web/ui.js
+IMPORT("js_ui_title") void js_ui_title(const char *s, i32 len);
+IMPORT("js_ui_title_bottom") i32 js_ui_title_bottom(void);
+IMPORT("js_ui_slider") void js_ui_slider(const char *name, i32 len, f32 min, f32 max, f32 step, f32 *value);
+
 // web/gpu.js. only platform/gpu.c should call these, everyone else uses plat_gpu_*
 IMPORT("js_gpu_create_shader") GpuHandle js_gpu_create_shader(const char *wgsl, i32 len);
 IMPORT("js_gpu_create_buffer") GpuHandle js_gpu_create_buffer(i32 size, i32 usage);
@@ -44,5 +49,10 @@ void plat_log_i32(const char *label, i32 value); // logs "label: value"
 i32 plat_screen_width(void);
 i32 plat_screen_height(void);
 f64 plat_now_ms(void); // milliseconds, for measuring how long things take
+
+// debug panel. adds a slider that writes straight into *value whenever it moves. call once, at init
+void plat_ui_slider(const char *name, f32 min, f32 max, f32 step, f32 *value);
+void plat_ui_title(const char *s);   // big green title in the top left corner
+i32 plat_ui_title_bottom(void);      // where the title ends, in screen pixels from the top. draw below it
 
 #endif

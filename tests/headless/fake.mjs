@@ -50,8 +50,15 @@ const canvas = {
   addEventListener(type, fn) { canvasHandlers[type] = fn; },
   requestPointerLock() { globalThis.document.pointerLockElement = canvas; },
 };
+// debug panel elements made by web/ui.js. sliders[name].set(v) moves a slider like a user would
+export const sliders = {};
+const element = (tag) => ({ tag, style: {}, handlers: {}, textContent: "", value: "",
+  addEventListener(type, fn) { this.handlers[type] = fn; },
+  getBoundingClientRect: () => ({ top: 12, bottom: 66, left: 16, right: 200 }),
+  append(label, input) { sliders[label.textContent] = input; }, // ui.js appends label, slider, value
+  set(v) { this.value = String(v); this.handlers.input(); } });
 globalThis.document = {
-  getElementById: () => canvas, body: {}, pointerLockElement: null,
+  getElementById: () => canvas, body: { appendChild() {} }, pointerLockElement: null, createElement: element,
   exitPointerLock() { this.pointerLockElement = null; },
 };
 globalThis.window = { addEventListener(type, fn) { windowHandlers[type] = fn; } };

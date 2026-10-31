@@ -47,22 +47,32 @@ win.keydown(key("Space")); win.blur(); win.keyup(key("Space")); frame();
 win.keydown(key("Space")); frame(); win.keyup(key("Space"));
 console.log("after blur and another press: spawns", logs.length);
 
-// 6. camera: W for 1 s moves it, Shift makes it faster, mouse only turns it while locked
+// 6. camera: nothing moves it while unlocked. locked: W for 1 s moves it, Shift makes it faster, mouse turns it
+const holdW = (shift) => {
+  if (shift) win.keydown(key("ShiftRight"));
+  win.keydown(key("KeyW")); for (let f = 0; f < 60; f++) frame(); win.keyup(key("KeyW"));
+  if (shift) win.keyup(key("ShiftRight"));
+  frame();
+};
 frame();
 const c0 = cam();
-win.keydown(key("KeyW")); for (let f = 0; f < 60; f++) frame(); win.keyup(key("KeyW")); frame();
-const c1 = cam();
-win.keydown(key("ShiftRight")); win.keydown(key("KeyW")); for (let f = 0; f < 60; f++) frame(); win.keyup(key("KeyW")); win.keyup(key("ShiftRight")); frame();
-const c2 = cam();
-// view_proj translation (column 3) changes with position. compare how much each second moved it
-console.log("W for 1 s changed the view by", camDiff(c0, c1).toFixed(2), "| with Shift", camDiff(c1, c2).toFixed(2), "(expect about 4x)");
+holdW(false);
+win.mousemove({ movementX: 200, movementY: 0 }); frame();
+console.log("unlocked: W and mouse changed the view by", camDiff(c0, cam()).toFixed(4), "(expect 0)");
 
-win.mousemove({ movementX: 200, movementY: 0 }); frame();
-console.log("mouse move while unlocked changed the view by", camDiff(c2, cam()).toFixed(4), "(expect 0)");
 cvs.click();
-win.mousemove({ movementX: 200, movementY: 0 }); frame();
+const c1 = cam();
+holdW(false);
+const c2 = cam();
+holdW(true);
 const c3 = cam();
-console.log("locked:", gpu.camera && document.pointerLockElement !== null, "| mouse move while locked changed the view by", camDiff(c2, c3).toFixed(2));
+// view_proj translation (column 3) changes with position. compare how much each second moved it
+console.log("locked:", document.pointerLockElement !== null, "| W for 1 s changed the view by", camDiff(c1, c2).toFixed(2), "| with Shift", camDiff(c2, c3).toFixed(2), "(expect about 4x)");
+win.mousemove({ movementX: 200, movementY: 0 }); frame();
+console.log("mouse move while locked changed the view by", camDiff(c3, cam()).toFixed(2));
+
 cvs.click();
-console.log("click again unlocks:", document.pointerLockElement === null);
+const c4 = cam();
+holdW(false);
+console.log("click again unlocks:", document.pointerLockElement === null, "| W after unlock changed the view by", camDiff(c4, cam()).toFixed(4), "(expect 0)");
 console.log("preventDefault calls:", prevented);

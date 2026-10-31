@@ -2,11 +2,13 @@
 import { createEnv } from "./env.js";
 import { createGpu } from "./gpu.js";
 import { createInput } from "./input.js";
+import { createUi } from "./ui.js";
 
 const ctx = { canvas: document.getElementById("screen"), memory: null };
 
 const input = createInput(ctx.canvas);
-const env = { ...createEnv(ctx), ...input.env, ...(await createGpu(ctx)) };
+const ui = createUi(ctx);
+const env = { ...createEnv(ctx), ...input.env, ...ui.env, ...(await createGpu(ctx)) };
 const { instance } = await WebAssembly.instantiateStreaming(fetch("game.wasm"), { env });
 ctx.memory = instance.exports.memory;
 console.log("[js] wasm loaded");

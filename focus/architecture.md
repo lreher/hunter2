@@ -16,7 +16,7 @@ Goal: split the code into a clear, extensible structure. Know where to look for 
 - Each folder has one public header (e.g. render/render.h). Others include only that.
 - Game never touches JS or WebGPU directly.
 - src/main.c only exports game_init, game_frame.
-- JS split by browser feature: web/main.js (load, loop), gpu.js, input.js, audio.js.
+- JS split by browser feature: web/main.js (load, loop), gpu.js, input.js, audio.js, ui.js (debug panel and title, HTML over the canvas, 2026-10-31).
 - Build: unity build (main.c includes each .c). Revisit if it grows too big.
 - Naming: functions module_verb_noun, types PascalCase, macros UPPER_SNAKE, locals and fields snake_case (user: case does not matter, consistency does), JS imports js_, JS code camelCase. Prefixes: base topics (str_, mem_, log_, v3_), plat_, render_, game has none. Private statics prefixed too.
 - Memory: arenas (perm, level, frame) + pools for come-and-go things (entities, particles). No malloc. Debug counters for arena usage.

@@ -14,7 +14,7 @@
 #define WORLD_H 9.0f
 #define WORLD_D 9.0f
 
-// Free fly camera: mouse looks (while locked), WASD moves where you look, E/Q up/down, Shift faster.
+// Free fly camera, only while the mouse is locked: mouse looks, WASD moves where you look, E/Q up/down, Shift faster.
 #define CAMERA_SPEED 5.0f      // m/s
 #define CAMERA_FAST 4.0f       // speed multiplier with Shift
 #define CAMERA_TURN 0.0025f    // radians per pixel of mouse movement
@@ -30,9 +30,16 @@ typedef struct {
 // in front of the box, a bit above, looking at its center
 static Camera game_camera = {{WORLD_W / 2, 7.0f, 16.0f}, 0, -0.15f};
 
-#define BALL_COUNT 80
-#define BALL_BOUNCE 0.6f
-#define WALL_BOUNCE 0.5f
+#define GAME_MAX_BALLS 1000
+
+// tuned live from the debug panel (web/ui.js writes into these). count and sizes respawn the balls
+static f32 game_ball_count = 80;
+static f32 game_radius_min = 0.12f; // m
+static f32 game_radius_max = 0.35f;
+static f32 game_ball_bounce = 0.6f;
+static f32 game_wall_bounce = 0.5f;
+static i32 game_balls_alive; // how many of game_balls are in play, set at spawn
+static f32 game_spawned_count, game_spawned_min, game_spawned_max; // what the current balls were spawned with
 #define SOLVER_PASSES 4 // collisions fix each other up, a few passes keeps piles from sinking into each other
 
 typedef struct {
@@ -43,7 +50,7 @@ typedef struct {
     f32 overlap_glow; // debug: seconds left to show this ball white after a drawn overlap
 } Ball;
 
-static Ball game_balls[BALL_COUNT];
+static Ball game_balls[GAME_MAX_BALLS];
 
 static const f32 game_palette[6][3] = {
     {0.95f, 0.35f, 0.30f}, {0.98f, 0.70f, 0.20f}, {0.45f, 0.85f, 0.40f},
@@ -81,9 +88,18 @@ static i32 game_overlaps_placed(V3 position, real radius, i32 placed) {
 }
 
 static void game_spawn_balls(void) {
-    for (i32 i = 0; i < BALL_COUNT; i++) {
+    game_balls_alive = (i32)game_ball_count;
+    if (game_balls_alive < 1) game_balls_alive = 1;
+    if (game_balls_alive > GAME_MAX_BALLS) game_balls_alive = GAME_MAX_BALLS;
+    game_spawned_count = game_ball_count;
+    game_spawned_min = game_radius_min;
+    game_spawned_max = game_radius_max;
+    f32 lo = game_radius_min < game_radius_max ? game_radius_min : game_radius_max; // sliders may cross
+    f32 hi = game_radius_min < game_radius_max ? game_radius_max : game_radius_min;
+
+    for (i32 i = 0; i < game_balls_alive; i++) {
         Ball *ball = &game_balls[i];
-        ball->radius = rand_f32(0.12f, 0.35f);
+        ball->radius = rand_f32(lo, hi);
 
         Particle *p = &ball->particle;
         for (i32 attempt = 0; attempt < 100; attempt++) { // keep the last try if the box is too full
@@ -102,7 +118,7 @@ static void game_spawn_balls(void) {
         ball->g = color[1];
         ball->b = color[2];
     }
-    plat_log_i32("balls spawned", BALL_COUNT);
+    plat_log_i32("balls spawned", game_balls_alive);
 }
 
 void game_init(void) {
@@ -111,12 +127,19 @@ void game_init(void) {
     render_init();
     plat_log_i32("gpu calls at init", plat_gpu_stats.calls);
 
+    plat_ui_title("Erasmos Balls");
+    plat_ui_slider("balls", 1, GAME_MAX_BALLS, 1, &game_ball_count);
+    plat_ui_slider("min radius", 0.05f, 0.5f, 0.01f, &game_radius_min);
+    plat_ui_slider("max radius", 0.05f, 1.0f, 0.01f, &game_radius_max);
+    plat_ui_slider("ball bounce", 0, 1, 0.05f, &game_ball_bounce);
+    plat_ui_slider("wall bounce", 0, 1, 0.05f, &game_wall_bounce);
+
     rand_seed(12345); // same seed, same first layout. every respawn then gets a new one
     game_spawn_balls();
 }
 
 static void game_step(void) {
-    for (i32 i = 0; i < BALL_COUNT; i++) {
+    for (i32 i = 0; i < game_balls_alive; i++) {
         Ball *ball = &game_balls[i];
         ball->previous_position = ball->particle.position;
         particle_integrate(&ball->particle, (real)GAME_STEP);
@@ -125,18 +148,18 @@ static void game_step(void) {
     V3 box_min = v3_create(0, 0, -WORLD_D / 2);
     V3 box_max = v3_create(WORLD_W, WORLD_H, WORLD_D / 2);
     for (i32 pass = 0; pass < SOLVER_PASSES; pass++) {
-        for (i32 i = 0; i < BALL_COUNT; i++) {
-            for (i32 j = i + 1; j < BALL_COUNT; j++) {
+        for (i32 i = 0; i < game_balls_alive; i++) {
+            for (i32 j = i + 1; j < game_balls_alive; j++) {
                 Ball *a = &game_balls[i];
                 Ball *b = &game_balls[j];
-                i32 hit = particle_collide_spheres(&a->particle, a->radius, &b->particle, b->radius, BALL_BOUNCE);
+                i32 hit = particle_collide_spheres(&a->particle, a->radius, &b->particle, b->radius, game_ball_bounce);
                 if (pass == 0) game_stats_contacts += hit;
             }
         }
         // walls last, so nothing is left outside the box
-        for (i32 i = 0; i < BALL_COUNT; i++) {
+        for (i32 i = 0; i < game_balls_alive; i++) {
             Ball *ball = &game_balls[i];
-            particle_collide_box(&ball->particle, ball->radius, box_min, box_max, WALL_BOUNCE, 0.02f);
+            particle_collide_box(&ball->particle, ball->radius, box_min, box_max, game_wall_bounce, 0.02f);
         }
     }
 }
@@ -146,13 +169,14 @@ static V3 game_camera_forward(void) {
     return v3_create(f32_sin(game_camera.yaw) * c, f32_sin(game_camera.pitch), -f32_cos(game_camera.yaw) * c);
 }
 
+// the camera only moves while the mouse is locked (click the canvas), so the panel can be used without it drifting
 static void game_update_camera(f32 seconds) {
-    if (plat_mouse_locked()) {
-        game_camera.yaw += plat_mouse_dx() * CAMERA_TURN;
-        game_camera.pitch -= plat_mouse_dy() * CAMERA_TURN;
-        if (game_camera.pitch > CAMERA_MAX_PITCH) game_camera.pitch = CAMERA_MAX_PITCH;
-        if (game_camera.pitch < -CAMERA_MAX_PITCH) game_camera.pitch = -CAMERA_MAX_PITCH;
-    }
+    if (!plat_mouse_locked()) return;
+
+    game_camera.yaw += plat_mouse_dx() * CAMERA_TURN;
+    game_camera.pitch -= plat_mouse_dy() * CAMERA_TURN;
+    if (game_camera.pitch > CAMERA_MAX_PITCH) game_camera.pitch = CAMERA_MAX_PITCH;
+    if (game_camera.pitch < -CAMERA_MAX_PITCH) game_camera.pitch = -CAMERA_MAX_PITCH;
 
     V3 forward = game_camera_forward();
     V3 right = v3_create(f32_cos(game_camera.yaw), 0, f32_sin(game_camera.yaw));
@@ -195,16 +219,16 @@ static void game_draw(f32 alpha, f32 seconds) {
     render_draw_box(v3_create(WORLD_W / 2, -0.05f, 0), v3_create(WORLD_W / 2, 0.05f, WORLD_D / 2), 0.20f, 0.24f, 0.34f);
     game_draw_box_edges(v3_create(0, 0, -WORLD_D / 2), v3_create(WORLD_W, WORLD_H, WORLD_D / 2), 0.45f, 0.55f, 0.75f);
 
-    V3 positions[BALL_COUNT];
-    for (i32 i = 0; i < BALL_COUNT; i++) {
+    static V3 positions[GAME_MAX_BALLS];
+    for (i32 i = 0; i < game_balls_alive; i++) {
         Ball *ball = &game_balls[i];
         positions[i] = v3_lerp(ball->previous_position, ball->particle.position, alpha);
     }
 
     // check what is drawn, not the physics state: blending between steps can overlap even when the steps do not
     i32 overlapped = 0;
-    for (i32 i = 0; i < BALL_COUNT; i++) {
-        for (i32 j = i + 1; j < BALL_COUNT; j++) {
+    for (i32 i = 0; i < game_balls_alive; i++) {
+        for (i32 j = i + 1; j < game_balls_alive; j++) {
             real gap = game_balls[i].radius + game_balls[j].radius - GAME_OVERLAP_LIMIT;
             if (v3_square_magnitude(v3_subtracted(positions[i], positions[j])) >= gap * gap) continue;
             game_balls[i].overlap_glow = GAME_OVERLAP_GLOW;
@@ -214,7 +238,7 @@ static void game_draw(f32 alpha, f32 seconds) {
     }
     game_stats_overlap_frames += overlapped;
 
-    for (i32 i = 0; i < BALL_COUNT; i++) {
+    for (i32 i = 0; i < game_balls_alive; i++) {
         Ball *ball = &game_balls[i];
         if (game_show_overlaps && ball->overlap_glow > 0) {
             render_draw_sphere(positions[i], ball->radius, 1, 1, 1);
@@ -224,18 +248,23 @@ static void game_draw(f32 alpha, f32 seconds) {
         ball->overlap_glow -= seconds;
     }
 
+    f32 top = (f32)plat_ui_title_bottom() + 8;
     char line[64];
     line[0] = 0;
     str_append(line, sizeof(line), "fps ");
     str_append_i32(line, sizeof(line), game_hud_fps);
-    render_draw_text(line, 16, 16, 2, 0.8f, 0.8f, 0.8f);
+    render_draw_text(line, 16, top, 2, 0.8f, 0.8f, 0.8f);
     line[0] = 0;
     str_append(line, sizeof(line), game_show_overlaps ? "overlap view (O): on" : "overlap view (O): off");
-    render_draw_text(line, 16, 40, 2, 0.8f, 0.8f, 0.8f);
+    render_draw_text(line, 16, top + 24, 2, 0.8f, 0.8f, 0.8f);
     line[0] = 0;
     str_append(line, sizeof(line), "overlap frames/s: ");
     str_append_i32(line, sizeof(line), game_hud_overlap_frames);
-    render_draw_text(line, 16, 64, 2, 0.8f, 0.8f, 0.8f);
+    render_draw_text(line, 16, top + 48, 2, 0.8f, 0.8f, 0.8f);
+    line[0] = 0;
+    str_append(line, sizeof(line), "balls: ");
+    str_append_i32(line, sizeof(line), game_balls_alive);
+    render_draw_text(line, 16, top + 72, 2, 0.8f, 0.8f, 0.8f);
     render_end();
 }
 
@@ -264,7 +293,7 @@ static void game_update_stats(f64 now_ms, f64 cpu_ms) {
     game_log_stat(line, sizeof(line), "gpu calls", plat_gpu_stats.calls);
     game_log_stat(line, sizeof(line), "draws", plat_gpu_stats.draws);
     game_log_stat(line, sizeof(line), "upload bytes", plat_gpu_stats.upload_bytes);
-    game_log_stat(line, sizeof(line), "balls", BALL_COUNT);
+    game_log_stat(line, sizeof(line), "balls", game_balls_alive);
     plat_log(line);
 
     game_hud_fps = game_stats_frames;
@@ -280,7 +309,9 @@ static void game_update_stats(f64 now_ms, f64 cpu_ms) {
 void game_frame(f64 now_ms) {
     f64 cpu_start_ms = plat_now_ms();
 
-    if (plat_key_pressed(KEY_SPACE)) game_spawn_balls();
+    i32 settings_changed = game_ball_count != game_spawned_count || game_radius_min != game_spawned_min ||
+                           game_radius_max != game_spawned_max;
+    if (plat_key_pressed(KEY_SPACE) || settings_changed) game_spawn_balls();
     if (plat_key_pressed(KEY_O)) {
         game_show_overlaps = !game_show_overlaps;
         plat_log_i32("show overlaps", game_show_overlaps);
