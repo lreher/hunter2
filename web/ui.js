@@ -31,25 +31,30 @@ export function createUi(ctx) {
                 if (!title) return 0;
                 return Math.ceil(title.getBoundingClientRect().bottom * devicePixelRatio);
             },
-            js_ui_slider(namePtr, nameLen, min, max, step, valuePtr) {
+            // logarithmic (log = 1): equal slider distance multiplies the value by the same amount, min must be > 0
+            js_ui_slider(namePtr, nameLen, min, max, step, log, valuePtr) {
                 if (!panel) makePanel();
                 const name = decoder.decode(new Uint8Array(ctx.memory.buffer, namePtr, nameLen));
                 const value = new Float32Array(ctx.memory.buffer, valuePtr, 1)[0];
                 const digits = step >= 1 ? 0 : 2;
+                const LOG_STEPS = 1000;
+                const fromPosition = (p) => log ? Math.round(min * (max / min) ** (p / LOG_STEPS) / step) * step : p;
+                const toPosition = (v) => log ? LOG_STEPS * Math.log(v / min) / Math.log(max / min) : v;
 
                 const label = document.createElement("span");
                 label.textContent = name;
                 const input = document.createElement("input");
                 input.type = "range";
-                input.min = min;
-                input.max = max;
-                input.step = step;
-                input.value = value;
+                input.min = log ? 0 : min;
+                input.max = log ? LOG_STEPS : max;
+                input.step = log ? 1 : step;
+                input.value = toPosition(value);
+                input.toPosition = toPosition; // for the headless tests
                 const shown = document.createElement("span");
                 shown.textContent = value.toFixed(digits);
 
                 input.addEventListener("input", () => {
-                    const v = Number(input.value);
+                    const v = fromPosition(Number(input.value));
                     new Float32Array(ctx.memory.buffer, valuePtr, 1)[0] = v; // memory can grow, so take a fresh view
                     shown.textContent = v.toFixed(digits);
                 });

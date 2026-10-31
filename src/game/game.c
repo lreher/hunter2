@@ -30,7 +30,7 @@ typedef struct {
 // in front of the box, a bit above, looking at its center
 static Camera game_camera = {{WORLD_W / 2, 7.0f, 16.0f}, 0, -0.15f};
 
-#define GAME_MAX_BALLS 1000
+#define GAME_MAX_BALLS 2000 // all pairs: past this the step gets too slow (27 ms at 2000). raise after a broadphase (ch 12)
 
 // tuned live from the debug panel (web/ui.js writes into these). count and sizes respawn the balls
 static f32 game_ball_count = 80;
@@ -128,7 +128,7 @@ void game_init(void) {
     plat_log_i32("gpu calls at init", plat_gpu_stats.calls);
 
     plat_ui_title("Erasmos Balls");
-    plat_ui_slider("balls", 1, GAME_MAX_BALLS, 1, &game_ball_count);
+    plat_ui_slider_log("balls", 1, GAME_MAX_BALLS, 1, &game_ball_count);
     plat_ui_slider("min radius", 0.05f, 0.5f, 0.01f, &game_radius_min);
     plat_ui_slider("max radius", 0.05f, 1.0f, 0.01f, &game_radius_max);
     plat_ui_slider("ball bounce", 0, 1, 0.05f, &game_ball_bounce);

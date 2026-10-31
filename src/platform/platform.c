@@ -27,7 +27,11 @@ f64 plat_now_ms(void) {
 }
 
 void plat_ui_slider(const char *name, f32 min, f32 max, f32 step, f32 *value) {
-    js_ui_slider(name, str_len(name), min, max, step, value);
+    js_ui_slider(name, str_len(name), min, max, step, 0, value);
+}
+
+void plat_ui_slider_log(const char *name, f32 min, f32 max, f32 step, f32 *value) {
+    js_ui_slider(name, str_len(name), min, max, step, 1, value);
 }
 
 void plat_ui_title(const char *s) {

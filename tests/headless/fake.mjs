@@ -63,7 +63,7 @@ const element = (tag) => ({ tag, style: {}, handlers: {}, textContent: "", value
   addEventListener(type, fn) { this.handlers[type] = fn; },
   getBoundingClientRect: () => ({ top: 12, bottom: 66, left: 16, right: 200 }),
   append(label, input) { sliders[label.textContent] = input; }, // ui.js appends label, slider, value
-  set(v) { this.value = String(v); this.handlers.input(); } });
+  set(v) { this.value = String(this.toPosition ? this.toPosition(v) : v); this.handlers.input(); } });
 globalThis.document = {
   getElementById: () => canvas, body: { appendChild() {} }, pointerLockElement: null, createElement: element,
   exitPointerLock() { this.pointerLockElement = null; },
