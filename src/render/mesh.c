@@ -32,7 +32,7 @@ typedef struct {
     GpuHandle instance_buffer;
 } Mesh;
 
-#define MESH_SPHERE_SUBDIVISIONS 2 // 20 triangles, x4 each time: 320
+#define MESH_SPHERE_SUBDIVISIONS 4 // 20 triangles, x4 each time: 5120
 #define MESH_SPHERE_TRIANGLES (20 << (2 * MESH_SPHERE_SUBDIVISIONS))
 #define MESH_MAX_INSTANCES 16384
 #define MESH_MAX_LINES 16384
@@ -47,7 +47,18 @@ static i32 mesh_line_count;
 static Mesh mesh_sphere = {mesh_sphere_vertices, 0, mesh_sphere_instances, 0, 0, 0};
 static Mesh mesh_box = {mesh_box_vertices, 0, mesh_box_instances, 0, 0, 0};
 
-static GpuHandle mesh_camera_buffer; // view projection + light direction
+// what the mesh shader knows about the frame. layout must match Scene in shaders.c
+#define MESH_MAX_SHADOW_SPHERES 256 // spheres past this still draw, but cast no shadow
+typedef struct {
+    f32 view_proj[16];
+    f32 light[4]; // direction toward the sun
+    f32 eye[4];
+    u32 sphere_count, pad[3];
+    f32 spheres[MESH_MAX_SHADOW_SPHERES][4]; // center, radius
+} MeshScene;
+
+static MeshScene mesh_scene;
+static GpuHandle mesh_scene_buffer;
 static GpuHandle mesh_pipeline;
 static GpuHandle mesh_bind_group;
 static GpuHandle mesh_line_pipeline;
@@ -149,7 +160,7 @@ static GpuHandle mesh_create_bind_group(GpuHandle pipeline) {
     GpuBindGroupDesc desc = {0};
     desc.pipeline = pipeline;
     desc.entry_count = 1;
-    desc.entries[0] = (GpuBindEntry){0, GPU_BIND_UNIFORM, mesh_camera_buffer};
+    desc.entries[0] = (GpuBindEntry){0, GPU_BIND_UNIFORM, mesh_scene_buffer};
     return plat_gpu_create_bind_group(&desc);
 }
 
@@ -158,7 +169,7 @@ static void render_mesh_init(void) {
     mesh_build_box();
     mesh_upload(&mesh_sphere);
     mesh_upload(&mesh_box);
-    mesh_camera_buffer = plat_gpu_create_buffer(80, GPU_BUFFER_UNIFORM | GPU_BUFFER_COPY_DST);
+    mesh_scene_buffer = plat_gpu_create_buffer(sizeof(MeshScene), GPU_BUFFER_UNIFORM | GPU_BUFFER_COPY_DST);
     mesh_line_buffer = plat_gpu_create_buffer(sizeof(mesh_lines), GPU_BUFFER_VERTEX | GPU_BUFFER_COPY_DST);
 
     GpuPipelineDesc pipeline = {0};
@@ -201,18 +212,19 @@ static void render_mesh_begin(void) {
     mesh_sphere.instance_count = 0;
     mesh_box.instance_count = 0;
     mesh_line_count = 0;
+    mesh_scene.sphere_count = 0;
 }
 
-void render_set_camera(M4 view_projection) {
-    f32 camera[20];
-    for (i32 i = 0; i < 16; i++) camera[i] = view_projection.m[i];
-    V3 light = v3_create(0.4f, 1.0f, 0.3f); // direction toward the light: up, a bit right and front
+void render_set_camera(M4 view_projection, V3 eye) {
+    for (i32 i = 0; i < 16; i++) mesh_scene.view_proj[i] = view_projection.m[i];
+    V3 light = v3_create(0.4f, 1.0f, 0.3f); // up, a bit right and front
     v3_normalize(&light);
-    camera[16] = light.x;
-    camera[17] = light.y;
-    camera[18] = light.z;
-    camera[19] = 0;
-    plat_gpu_write_buffer(mesh_camera_buffer, 0, camera, sizeof(camera));
+    mesh_scene.light[0] = light.x;
+    mesh_scene.light[1] = light.y;
+    mesh_scene.light[2] = light.z;
+    mesh_scene.eye[0] = eye.x;
+    mesh_scene.eye[1] = eye.y;
+    mesh_scene.eye[2] = eye.z;
 }
 
 static void mesh_add(Mesh *mesh, V3 center, V3 half_size, f32 r, f32 g, f32 b) {
@@ -226,6 +238,13 @@ static void mesh_add(Mesh *mesh, V3 center, V3 half_size, f32 r, f32 g, f32 b) {
 }
 
 void render_draw_sphere(V3 center, f32 radius, f32 r, f32 g, f32 b) {
+    if (mesh_scene.sphere_count < MESH_MAX_SHADOW_SPHERES) {
+        f32 *s = mesh_scene.spheres[mesh_scene.sphere_count++];
+        s[0] = center.x;
+        s[1] = center.y;
+        s[2] = center.z;
+        s[3] = radius;
+    }
     mesh_add(&mesh_sphere, center, v3_create(radius, radius, radius), r, g, b);
 }
 
@@ -249,6 +268,9 @@ static void mesh_draw(Mesh *mesh) {
 }
 
 static void render_mesh_end(void) {
+    // only the spheres used this frame are uploaded
+    i32 scene_bytes = (i32)(sizeof(MeshScene) - sizeof(mesh_scene.spheres)) + (i32)mesh_scene.sphere_count * 16;
+    plat_gpu_write_buffer(mesh_scene_buffer, 0, &mesh_scene, scene_bytes);
     if (mesh_sphere.instance_count + mesh_box.instance_count > 0) {
         plat_gpu_set_pipeline(mesh_pipeline);
         plat_gpu_set_bind_group(0, mesh_bind_group);

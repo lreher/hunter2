@@ -40,6 +40,7 @@ typedef struct {
     V3 previous_position; // from the step before, for blending
     real radius;
     f32 r, g, b;
+    f32 overlap_glow; // debug: seconds left to show this ball white after a drawn overlap
 } Ball;
 
 static Ball game_balls[BALL_COUNT];
@@ -59,6 +60,16 @@ static i32 game_stats_frames;
 static i32 game_stats_steps;
 static f64 game_stats_cpu_ms;
 static i32 game_stats_contacts;
+static i32 game_stats_overlap_frames; // drawn frames where some pair overlaps more than GAME_OVERLAP_LIMIT
+
+// debug view (O): balls that overlap in the drawn frame turn white for a moment, so short overlaps are visible
+#define GAME_OVERLAP_LIMIT 0.01f // m
+#define GAME_OVERLAP_GLOW 0.5f   // s
+static i32 game_show_overlaps;
+
+// last second's stats, for the on screen text
+static i32 game_hud_fps;
+static i32 game_hud_overlap_frames;
 
 // true if a ball of this radius at this position would overlap one of the first `placed` balls
 static i32 game_overlaps_placed(V3 position, real radius, i32 placed) {
@@ -171,24 +182,60 @@ static void game_draw_box_edges(V3 lo, V3 hi, f32 r, f32 g, f32 b) {
 }
 
 // alpha: how far we are between the last step (0) and the next one (1)
-static void game_draw(f32 alpha) {
+static void game_draw(f32 alpha, f32 seconds) {
     f32 aspect = (f32)plat_screen_width() / (f32)plat_screen_height();
     M4 projection = m4_perspective(CAMERA_FOV, aspect, 0.05f, 200.0f);
     V3 eye = game_camera.position;
     M4 view = m4_look_at(eye, v3_added(eye, game_camera_forward()), v3_create(0, 1, 0));
 
     render_begin(0.02f, 0.02f, 0.04f);
-    render_set_camera(m4_multiplied(projection, view));
+    render_set_camera(m4_multiplied(projection, view), eye);
 
     // floor: a thin slab just under y = 0
     render_draw_box(v3_create(WORLD_W / 2, -0.05f, 0), v3_create(WORLD_W / 2, 0.05f, WORLD_D / 2), 0.20f, 0.24f, 0.34f);
     game_draw_box_edges(v3_create(0, 0, -WORLD_D / 2), v3_create(WORLD_W, WORLD_H, WORLD_D / 2), 0.45f, 0.55f, 0.75f);
 
+    V3 positions[BALL_COUNT];
     for (i32 i = 0; i < BALL_COUNT; i++) {
         Ball *ball = &game_balls[i];
-        V3 position = v3_lerp(ball->previous_position, ball->particle.position, alpha);
-        render_draw_sphere(position, ball->radius, ball->r, ball->g, ball->b);
+        positions[i] = v3_lerp(ball->previous_position, ball->particle.position, alpha);
     }
+
+    // check what is drawn, not the physics state: blending between steps can overlap even when the steps do not
+    i32 overlapped = 0;
+    for (i32 i = 0; i < BALL_COUNT; i++) {
+        for (i32 j = i + 1; j < BALL_COUNT; j++) {
+            real gap = game_balls[i].radius + game_balls[j].radius - GAME_OVERLAP_LIMIT;
+            if (v3_square_magnitude(v3_subtracted(positions[i], positions[j])) >= gap * gap) continue;
+            game_balls[i].overlap_glow = GAME_OVERLAP_GLOW;
+            game_balls[j].overlap_glow = GAME_OVERLAP_GLOW;
+            overlapped = 1;
+        }
+    }
+    game_stats_overlap_frames += overlapped;
+
+    for (i32 i = 0; i < BALL_COUNT; i++) {
+        Ball *ball = &game_balls[i];
+        if (game_show_overlaps && ball->overlap_glow > 0) {
+            render_draw_sphere(positions[i], ball->radius, 1, 1, 1);
+        } else {
+            render_draw_sphere(positions[i], ball->radius, ball->r, ball->g, ball->b);
+        }
+        ball->overlap_glow -= seconds;
+    }
+
+    char line[64];
+    line[0] = 0;
+    str_append(line, sizeof(line), "fps ");
+    str_append_i32(line, sizeof(line), game_hud_fps);
+    render_draw_text(line, 16, 16, 2, 0.8f, 0.8f, 0.8f);
+    line[0] = 0;
+    str_append(line, sizeof(line), game_show_overlaps ? "overlap view (O): on" : "overlap view (O): off");
+    render_draw_text(line, 16, 40, 2, 0.8f, 0.8f, 0.8f);
+    line[0] = 0;
+    str_append(line, sizeof(line), "overlap frames/s: ");
+    str_append_i32(line, sizeof(line), game_hud_overlap_frames);
+    render_draw_text(line, 16, 64, 2, 0.8f, 0.8f, 0.8f);
     render_end();
 }
 
@@ -213,23 +260,31 @@ static void game_update_stats(f64 now_ms, f64 cpu_ms) {
     game_log_stat(line, sizeof(line), "cpu us/frame", (i32)(game_stats_cpu_ms * 1000.0 / game_stats_frames));
     game_log_stat(line, sizeof(line), "steps/s", game_stats_steps);
     game_log_stat(line, sizeof(line), "contacts/s", game_stats_contacts);
+    game_log_stat(line, sizeof(line), "overlap frames", game_stats_overlap_frames);
     game_log_stat(line, sizeof(line), "gpu calls", plat_gpu_stats.calls);
     game_log_stat(line, sizeof(line), "draws", plat_gpu_stats.draws);
     game_log_stat(line, sizeof(line), "upload bytes", plat_gpu_stats.upload_bytes);
     game_log_stat(line, sizeof(line), "balls", BALL_COUNT);
     plat_log(line);
 
+    game_hud_fps = game_stats_frames;
+    game_hud_overlap_frames = game_stats_overlap_frames;
     game_stats_start_ms = now_ms;
     game_stats_frames = 0;
     game_stats_steps = 0;
     game_stats_cpu_ms = 0;
     game_stats_contacts = 0;
+    game_stats_overlap_frames = 0;
 }
 
 void game_frame(f64 now_ms) {
     f64 cpu_start_ms = plat_now_ms();
 
     if (plat_key_pressed(KEY_SPACE)) game_spawn_balls();
+    if (plat_key_pressed(KEY_O)) {
+        game_show_overlaps = !game_show_overlaps;
+        plat_log_i32("show overlaps", game_show_overlaps);
+    }
 
     if (game_last_ms < 0) game_last_ms = now_ms;
     f64 frame_seconds = (now_ms - game_last_ms) / 1000.0;
@@ -245,6 +300,6 @@ void game_frame(f64 now_ms) {
     }
 
     game_update_camera((f32)frame_seconds);
-    game_draw((f32)(game_accumulator / GAME_STEP));
+    game_draw((f32)(game_accumulator / GAME_STEP), (f32)frame_seconds);
     game_update_stats(now_ms, plat_now_ms() - cpu_start_ms);
 }

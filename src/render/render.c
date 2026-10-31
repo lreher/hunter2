@@ -109,6 +109,14 @@ void render_draw_circle(f32 cx, f32 cy, f32 radius, f32 r, f32 g, f32 b, f32 a) 
     render_next_quad(cx - radius, cy - radius, radius * 2, radius * 2, RENDER_SHAPE_CIRCLE, r, g, b, a);
 }
 
+void render_draw_text(const char *s, f32 x, f32 y, f32 scale, f32 r, f32 g, f32 b) {
+    f32 size = FONT_GLYPH_SIZE * scale;
+    for (; *s; s++) {
+        render_push_glyph((u8)*s, x, y, size, r, g, b);
+        x += size;
+    }
+}
+
 void render_draw_text_centered(const char *s, f32 scale, f32 r, f32 g, f32 b) {
     f32 size = FONT_GLYPH_SIZE * scale;
     f32 width = size * str_len(s);

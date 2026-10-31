@@ -18,6 +18,7 @@ const STEP_MODES = ["vertex", "instance"];
 const TOPOLOGIES = ["triangle-list", "triangle-strip", "line-list"];
 const CULL_MODES = ["none", "back"];
 const DEPTH_FORMAT = "depth24plus";
+const SAMPLES = 4; // MSAA: smooth edges on spheres and lines. every pipeline and the frame targets use it
 const DEPTH_MODES = [
     { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: "always" },
     { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: "less" },
@@ -87,21 +88,21 @@ export async function createGpu(ctx) {
         return new Int32Array(ctx.memory.buffer, ptr, ints);
     }
 
-    // depth buffer, remade when the canvas size changes
-    let depthTexture = null;
-    let depthW = 0, depthH = 0;
-    function depthView() {
-        if (!depthTexture || depthW !== canvas.width || depthH !== canvas.height) {
-            if (depthTexture) depthTexture.destroy();
-            depthW = canvas.width;
-            depthH = canvas.height;
-            depthTexture = device.createTexture({
-                size: [canvas.width, canvas.height],
-                format: DEPTH_FORMAT,
-                usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            });
-        }
-        return depthTexture.createView();
+    // multisampled color and depth targets, remade when the canvas size changes.
+    // the frame is drawn into them, then the color is resolved (averaged) into the canvas
+    let colorTexture = null, depthTexture = null;
+    let targetW = 0, targetH = 0;
+    function updateTargets() {
+        if (colorTexture && targetW === canvas.width && targetH === canvas.height) return;
+        if (colorTexture) colorTexture.destroy();
+        if (depthTexture) depthTexture.destroy();
+        targetW = canvas.width;
+        targetH = canvas.height;
+        const make = (format) => device.createTexture({
+            size: [targetW, targetH], format, sampleCount: SAMPLES, usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        colorTexture = make(screenFormat);
+        depthTexture = make(DEPTH_FORMAT);
     }
 
     // frame state, set between begin_frame and end_frame
@@ -178,6 +179,7 @@ export async function createGpu(ctx) {
                 fragment: { module: get(shader, "shader"), entryPoint: "fs", targets: [target] },
                 primitive: { topology: pick(TOPOLOGIES, topology, "topology"), cullMode: pick(CULL_MODES, cull, "cull mode") },
                 depthStencil: pick(DEPTH_MODES, depth, "depth mode"),
+                multisample: { count: SAMPLES },
             });
             return add("pipeline", pipeline);
         },
@@ -222,15 +224,17 @@ export async function createGpu(ctx) {
         js_gpu_begin_frame(r, g, b) {
             if (pass) fail("gpu: begin_frame called twice");
             encoder = device.createCommandEncoder();
+            updateTargets();
             pass = encoder.beginRenderPass({
                 colorAttachments: [{
-                    view: context.getCurrentTexture().createView(),
+                    view: colorTexture.createView(),
+                    resolveTarget: context.getCurrentTexture().createView(),
                     loadOp: "clear",
-                    storeOp: "store",
+                    storeOp: "discard",
                     clearValue: { r, g, b, a: 1 },
                 }],
                 depthStencilAttachment: {
-                    view: depthView(),
+                    view: depthTexture.createView(),
                     depthClearValue: 1,
                     depthLoadOp: "clear",
                     depthStoreOp: "discard",

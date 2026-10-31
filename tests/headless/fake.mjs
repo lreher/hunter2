@@ -3,13 +3,14 @@
 import fs from "fs";
 const root = new URL("../../web/", import.meta.url).pathname;
 export const SW = 1600, SH = 900;
-export const SPHERE_VERTICES = 960; // icosphere, 2 subdivisions: 320 triangles
+export const SPHERE_VERTICES = 15360; // icosphere, 4 subdivisions: 5120 triangles
 
 const writes = new WeakMap(); // fake buffer -> last data written to it
 const slots = [];             // fake buffers bound to vertex slots
 export const draws = [];      // "vertexCount,instanceCount" per draw call
 export let spheres = [];      // {x, y, z, r} from the last sphere draw
-export let camera = null;     // last 20 floats written to the camera uniform (view_proj + light)
+export let camera = null;     // floats last written to the scene uniform (view_proj, light, eye, spheres)
+const uniforms = new WeakSet(); // fake buffers made with the UNIFORM usage flag
 
 const fake = (name) => new Proxy(function () {}, {
   get(_, p) {
@@ -24,7 +25,7 @@ const fake = (name) => new Proxy(function () {}, {
     if (m === "writeBuffer") {
       const data = new Float32Array(args[2].slice(args[3], args[3] + args[4]));
       writes.set(args[0], data);
-      if (args[4] === 80) camera = data;
+      if (uniforms.has(args[0])) camera = data;
     }
     if (m === "setVertexBuffer") slots[args[0]] = args[1];
     if (m === "draw") {
@@ -35,7 +36,9 @@ const fake = (name) => new Proxy(function () {}, {
         for (let i = 0; i < args[1]; i++) spheres.push({ x: d[i * 16], y: d[i * 16 + 1], z: d[i * 16 + 2], r: d[i * 16 + 4] });
       }
     }
-    return fake(name + "()");
+    const result = fake(name + "()");
+    if (m === "createBuffer" && args[0].usage & 0x40) uniforms.add(result);
+    return result;
   },
 });
 

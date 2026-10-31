@@ -17,6 +17,7 @@ enum {
     KEY_Q,
     KEY_E,
     KEY_SHIFT, // either shift key
+    KEY_O,
 };
 
 // down = held right now. pressed = went down since the last frame (key repeat does not count)

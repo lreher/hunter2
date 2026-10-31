@@ -1,7 +1,7 @@
 // Keyboard and mouse state for C to poll. Key order must match the KEY_ enum in src/platform/input.h.
 import { fail } from "./env.js";
 
-const KEY_NAMES = ["Space", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "ShiftLeft"];
+const KEY_NAMES = ["Space", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "ShiftLeft", "KeyO"];
 const KEY_ALIASES = { ShiftRight: "ShiftLeft" }; // both shift keys count as one
 
 export function createInput(canvas) {
