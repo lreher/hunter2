@@ -18,14 +18,14 @@ check_tool node node
 check_tool pdftotext poppler
 
 # build a tiny wasm the same way build.sh does: catches a clang without the wasm32 target or a missing wasm-ld
-CLANG=${CLANG:-clang}
+. ./find_clang.sh
 tmp=$(mktemp -d)
 echo 'int f(void) { return 1; }' > "$tmp/t.c"
 if "$CLANG" --target=wasm32 -mbulk-memory -ffreestanding -nostdlib ${WASM_LD:+--ld-path="$WASM_LD"} -Wl,--no-entry -Wl,--export=f \
     -o "$tmp/t.wasm" "$tmp/t.c" >/dev/null 2>&1; then
-    echo "ok       clang + wasm-ld (wasm32 build)"
+    echo "ok       clang + wasm-ld (wasm32 build, $CLANG)"
 else
-    echo "MISSING  clang + wasm-ld that can build wasm32 (install LLVM clang and lld, on PATH or set CLANG / WASM_LD)"
+    echo "MISSING  clang + wasm-ld that can build wasm32 (install LLVM clang and lld: on PATH, Homebrew llvm + lld, or set CLANG / WASM_LD)"
     missing=1
 fi
 rm -rf "$tmp"

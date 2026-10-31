@@ -1,0 +1,7 @@
+{
+  "name": "hunter2",
+  "private": true,
+  "scripts": {
+    "start": "./build.sh && node serve.js"
+  }
+}

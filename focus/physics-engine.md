@@ -45,6 +45,7 @@ This app (src/phys/, src/base/math.c), 3D since 2026-10-13, caught up with cphiz
 Not built (book order): force generators (ch 5), springs (ch 6), contact struct + contact resolver (ch 7), mass-aggregate engine (ch 8), rigid bodies and rotation (ch 9-11), broad phase and contact generation (ch 12-13), resolution with rotation, resting contacts, friction, stability (ch 14-16).
 
 ## Machine notes
+- macOS machine (2026-10-31): tools from Homebrew (llvm, lld, poppler). llvm is keg only (not on PATH), find_clang.sh finds it. Apple's /usr/bin/clang has no wasm32 target.
 - Linux/WSL machine (2026-10-31): tools from apt (clang, lld, poppler-utils). The game runs in Chrome on Windows at http://localhost:8000 (node serve.js in WSL). If Chrome says "no WebGPU adapter": chrome://gpu, check hardware acceleration, driver blocklist, or chrome://flags/#enable-unsafe-webgpu.
 
 ## Tests and instrumentation
@@ -98,3 +99,4 @@ Not built (book order): force generators (ch 5), springs (ch 6), contact struct 
 - 2026-10-31: camera keys only work while the mouse is locked (were always on). keys.mjs checks unlocked, locked and unlocked again.
 - 2026-10-31: title "Erasmos Balls" top left, green, in the Tiny5 pixel font. User chose the real font from Google Fonts (third party, OFL, needs network, falls back to monospace) over our own 5px font in C. It is an HTML div (web/ui.js, plat_ui_title), the C HUD draws below it (plat_ui_title_bottom gives its bottom edge in canvas pixels, read every frame).
 - 2026-10-31: session end. State section refreshed, handover rewritten. Next: ask, ch 5 or cphiz demos.
+- 2026-10-31: after a pull on macOS the page failed with "GpuPipelineDesc is 124 bytes in C, JS expects 176": game.wasm is gitignored, so it was a stale build. Rebuilt. find_clang.sh (sourced by build.sh, test.sh, setup.sh): CLANG if set, else clang on PATH if it builds wasm32, else Homebrew llvm (/opt/homebrew or /usr/local). package.json with npm start = ./build.sh && node serve.js (npm start -- 8080 for another port). Building on every start keeps the wasm in step with src/.
