@@ -38,6 +38,22 @@ void plat_ui_image(const char *name, GpuHandle texture) {
     js_ui_image(name, str_len(name), texture);
 }
 
+void plat_ui_clear(void) {
+    js_ui_clear();
+}
+
+void plat_ui_demo(const char *id, const char *chapter, const char *name) {
+    js_ui_demo(id, str_len(id), chapter, str_len(chapter), name, str_len(name));
+}
+
+void plat_ui_demo_bar(i32 *picked) {
+    js_ui_demo_bar(picked);
+}
+
+void plat_ui_demo_current(i32 index) {
+    js_ui_demo_current(index);
+}
+
 void plat_ui_title(const char *s) {
     js_ui_title(s, str_len(s));
 }

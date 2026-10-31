@@ -59,15 +59,19 @@ const canvas = {
 };
 // debug panel elements made by web/ui.js. sliders[name].set(v) moves a slider like a user would
 export const sliders = {};
+export const tabs = []; // demo bar tabs. tabs[i].handlers.click() picks demo i
 const element = (tag) => ({ tag, style: {}, handlers: {}, textContent: "", value: "",
-  addEventListener(type, fn) { this.handlers[type] = fn; },
+  addEventListener(type, fn) { this.handlers[type] = fn; }, remove() {}, scrollIntoView() {},
   getBoundingClientRect: () => ({ top: 12, bottom: 66, left: 16, right: 200 }),
-  append(label, input) { sliders[label.textContent] = input; }, // ui.js appends label, slider, value
+  append(label, input) { if (input) sliders[label.textContent] = input; else tabs.push(label); }, // panel: label, slider, value. demo bar: one tab
   set(v) { this.value = String(this.toPosition ? this.toPosition(v) : v); this.handlers.input(); } });
 globalThis.document = {
   getElementById: () => canvas, body: { appendChild() {} }, pointerLockElement: null, createElement: element,
   exitPointerLock() { this.pointerLockElement = null; },
 };
+globalThis.location = { href: "http://localhost/" + (process.env.SCENE ? "?scene=" + process.env.SCENE : ""),
+  get search() { return new URL(this.href).search; } };
+globalThis.history = { replaceState(state, title, url) { location.href = String(url); } };
 globalThis.window = { addEventListener(type, fn) { windowHandlers[type] = fn; } };
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: {
   gpu: { requestAdapter: async () => fake("adapter"), getPreferredCanvasFormat: () => "bgra8unorm" } } });

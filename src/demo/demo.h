@@ -6,6 +6,7 @@
 // One demo per thing we build from the book, kept so we can go back to it. Each runs on the current engine.
 // A demo owns its state and panel sliders. game/ runs the loop, the camera and the shared HUD.
 typedef struct {
+    const char *id;      // for ?scene= in the URL
     const char *name;
     const char *chapter; // book chapter, shown in the demo bar
     V3 camera_position;  // start view

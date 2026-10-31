@@ -6,6 +6,11 @@ const decoder = new TextDecoder();
 export function createUi(ctx) {
     let panel = null;
     let title = null;
+    let bar = null;      // demo bar along the bottom
+    const tabs = [];     // one per demo, in C's order
+    const demoIds = [];
+    let pickedPtr = 0;   // C's i32 that a click writes the tab index into
+    const text = (ptr, len) => decoder.decode(new Uint8Array(ctx.memory.buffer, ptr, len));
 
     function makePanel() {
         panel = document.createElement("div");
@@ -16,6 +21,48 @@ export function createUi(ctx) {
 
     return {
         env: {
+            // drops the whole panel, the next slider or picker makes a new one
+            js_ui_clear() {
+                if (panel) panel.remove();
+                panel = null;
+            },
+            // tabs are divs, not buttons: a focused button would also react to Space, which respawns
+            js_ui_demo(idPtr, idLen, chapterPtr, chapterLen, namePtr, nameLen) {
+                if (!bar) {
+                    bar = document.createElement("div");
+                    bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;display:flex;gap:4px;padding:6px 12px;" +
+                        "overflow-x:auto;background:rgba(10,12,20,0.8);color:#999;font:13px monospace";
+                    document.body.appendChild(bar);
+                }
+                const index = tabs.length;
+                const tab = document.createElement("div");
+                tab.textContent = `ch ${text(chapterPtr, chapterLen)}  ${text(namePtr, nameLen)}`;
+                tab.style.cssText = "padding:4px 10px;border-radius:4px;cursor:pointer;white-space:pre;user-select:none";
+                tab.addEventListener("click", () => {
+                    if (pickedPtr) new Int32Array(ctx.memory.buffer, pickedPtr, 1)[0] = index;
+                });
+                tabs.push(tab);
+                demoIds.push(text(idPtr, idLen));
+                bar.append(tab);
+            },
+            js_ui_demo_bar(ptr) {
+                pickedPtr = ptr;
+                const scene = new URLSearchParams(location.search).get("scene");
+                if (!scene) return;
+                const index = demoIds.indexOf(scene);
+                if (index >= 0) new Int32Array(ctx.memory.buffer, ptr, 1)[0] = index;
+                else console.warn(`[js] no scene "${scene}", there is: ${demoIds.join(", ")}`);
+            },
+            js_ui_demo_current(index) {
+                tabs.forEach((tab, i) => {
+                    tab.style.color = i === index ? "#4f4" : "";
+                    tab.style.background = i === index ? "rgba(68,255,68,0.12)" : "";
+                });
+                tabs[index].scrollIntoView({ block: "nearest", inline: "nearest" });
+                const url = new URL(location.href);
+                url.searchParams.set("scene", demoIds[index]);
+                history.replaceState(null, "", url); // reload keeps the demo, no new history entry per switch
+            },
             // big text in the top left corner, in the Tiny5 pixel font (Google Fonts, see index.html)
             js_ui_title(ptr, len) {
                 if (!title) {

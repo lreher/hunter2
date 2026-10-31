@@ -4,7 +4,7 @@
 // the demo files are included before this one (unity build), so their statics are visible here
 Demo demo_list[DEMO_COUNT] = {
     // in front of the box, a bit above, looking at its center
-    [DEMO_BALLS] = {"Erasmos Balls", "3", {BALLS_BOX_W / 2, 7.0f, 16.0f}, 0, -0.15f},
+    [DEMO_BALLS] = {"balls", "Erasmos Balls", "3", {BALLS_BOX_W / 2, 7.0f, 16.0f}, 0, -0.15f},
 };
 
 void demo_init(i32 demo) {

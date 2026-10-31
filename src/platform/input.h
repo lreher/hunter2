@@ -18,6 +18,8 @@ enum {
     KEY_E,
     KEY_SHIFT, // either shift key
     KEY_O,
+    KEY_BRACKET_LEFT,
+    KEY_BRACKET_RIGHT,
 };
 
 // down = held right now. pressed = went down since the last frame (key repeat does not count)

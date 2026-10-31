@@ -25,6 +25,7 @@ typedef struct {
 
 static Camera game_camera; // set from the demo's start view
 static i32 game_demo;      // the one running, DEMO_*
+static i32 game_demo_picked; // the one asked for: demo bar clicks (JS writes it), [ and ], ?scene=
 
 // time
 static f64 game_last_ms = -1;
@@ -41,12 +42,16 @@ static i32 game_hud_fps;
 static i32 game_hud_cpu_us; // cpu per frame
 static i32 game_hud_steps;  // steps per second, under 60 means the physics runs in slow motion
 
+// also for switching: the old demo's sliders go, the new one starts fresh from its start view
 static void game_start_demo(i32 demo) {
+    plat_ui_clear();
     game_demo = demo;
+    game_accumulator = 0;
     game_camera.position = demo_list[demo].camera_position;
     game_camera.yaw = demo_list[demo].camera_yaw;
     game_camera.pitch = demo_list[demo].camera_pitch;
     plat_ui_title(demo_list[demo].name);
+    plat_ui_demo_current(demo);
     demo_init(demo);
 }
 
@@ -56,7 +61,10 @@ void game_init(void) {
     render_init();
     plat_log_i32("gpu calls at init", plat_gpu_stats.calls);
 
-    game_start_demo(DEMO_BALLS);
+    for (i32 i = 0; i < DEMO_COUNT; i++) plat_ui_demo(demo_list[i].id, demo_list[i].chapter, demo_list[i].name);
+    game_demo_picked = DEMO_BALLS;
+    plat_ui_demo_bar(&game_demo_picked); // may pick another one from ?scene=
+    game_start_demo(game_demo_picked);
 }
 
 static V3 game_camera_forward(void) {
@@ -142,6 +150,10 @@ static void game_update_stats(f64 now_ms, f64 cpu_ms) {
 
 void game_frame(f64 now_ms) {
     f64 cpu_start_ms = plat_now_ms();
+
+    if (plat_key_pressed(KEY_BRACKET_LEFT)) game_demo_picked = (game_demo + DEMO_COUNT - 1) % DEMO_COUNT;
+    if (plat_key_pressed(KEY_BRACKET_RIGHT)) game_demo_picked = (game_demo + 1) % DEMO_COUNT;
+    if (game_demo_picked != game_demo && game_demo_picked >= 0 && game_demo_picked < DEMO_COUNT) game_start_demo(game_demo_picked);
 
     demo_update(game_demo);
 

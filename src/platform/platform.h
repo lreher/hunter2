@@ -26,6 +26,10 @@ IMPORT("js_ui_title") void js_ui_title(const char *s, i32 len);
 IMPORT("js_ui_title_bottom") i32 js_ui_title_bottom(void);
 IMPORT("js_ui_image") void js_ui_image(const char *name, i32 len, GpuHandle texture);
 IMPORT("js_ui_slider") void js_ui_slider(const char *name, i32 len, f32 min, f32 max, f32 step, i32 log, f32 *value);
+IMPORT("js_ui_clear") void js_ui_clear(void);
+IMPORT("js_ui_demo") void js_ui_demo(const char *id, i32 id_len, const char *chapter, i32 chapter_len, const char *name, i32 name_len);
+IMPORT("js_ui_demo_bar") void js_ui_demo_bar(i32 *picked);
+IMPORT("js_ui_demo_current") void js_ui_demo_current(i32 index);
 
 // web/gpu.js. only platform/gpu.c should call these, everyone else uses plat_gpu_*
 IMPORT("js_gpu_create_shader") GpuHandle js_gpu_create_shader(const char *wgsl, i32 len);
@@ -57,7 +61,13 @@ f64 plat_now_ms(void); // milliseconds, for measuring how long things take
 void plat_ui_slider(const char *name, f32 min, f32 max, f32 step, f32 *value);
 void plat_ui_slider_log(const char *name, f32 min, f32 max, f32 step, f32 *value); // small values get more room. min > 0
 void plat_ui_image(const char *name, GpuHandle texture); // file picker, the image goes into the texture (needs COPY_DST + RENDER_ATTACHMENT)
+void plat_ui_clear(void);            // removes every slider and picker, e.g. before another demo adds its own
 void plat_ui_title(const char *s);   // big green title in the top left corner
 i32 plat_ui_title_bottom(void);      // where the title ends, in screen pixels from the top. draw below it
+
+// demo bar along the bottom, one tab per demo
+void plat_ui_demo(const char *id, const char *chapter, const char *name); // adds a tab. id is what ?scene= in the URL matches
+void plat_ui_demo_bar(i32 *picked);   // after the tabs: a click writes the tab's index into *picked. ?scene=<id> picks one right away
+void plat_ui_demo_current(i32 index); // highlights the tab and puts ?scene=<id> in the URL
 
 #endif
