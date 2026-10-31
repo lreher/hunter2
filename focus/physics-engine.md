@@ -12,12 +12,12 @@ Goal: build the game's physics engine in src/phys/, following Millington's "Game
 
 ## Book
 - Text: reference/millington.txt (pages split by form feed). Map: reference/chapters.txt.
-- The PDF, millington.txt and contents.txt are gitignored (copyrighted). On a new machine copy them by hand. chapters.txt is ours and is in git.
+- The PDF, millington.txt and contents.txt are gitignored (copyrighted). New machine: the user copies the PDF into the repo root, ./setup.sh makes the .txt files (pdftotext -layout; contents = pdf pages 8-16). chapters.txt is ours and is in git.
 - pdf page = page in the PDF and in the text file. book page = pdf page - 23.
 - Equations and figures are broken in the text. Read those pages from the PDF (Read tool, pages param).
 - Parts: I particles (ch 2-4), II mass-aggregate (5-8), III rigid body (9-11), IV collision detection (12-13), V contact physics (14-17), VI other physics (18).
 - Claude reads the book for the user. Work in small steps in book order.
-- The book's own C++ source (Cyclone, MIT): reference/cyclone-physics, a gitignored local clone (local so grep and reads are fast). New machine: git clone https://github.com/idmillington/cyclone-physics.git reference/cyclone-physics. Useful to check details, not to copy shape.
+- The book's own C++ source (Cyclone, MIT): reference/cyclone-physics, a gitignored local clone (local so grep and reads are fast). ./setup.sh clones it. Useful to check details, not to copy shape.
 
 ## State (2026-10-13)
 
@@ -72,3 +72,4 @@ Not built (book order): force generators (ch 5), springs (ch 6), contact struct 
 - 2026-10-13: step 1 done: base math and phys converted to 3D, cphiz parts caught up (products, mass helpers, random direction). Tests added: 3D vectors, mass, z wall, diagonal sphere hit, rand_unit_v3. Browser not checked yet.
 - 2026-10-31: git prep. .gitignore added (build outputs, book files, .DS_Store). cphiz demo specs written here, so ../cphiz and ../cyclone-physics are no longer needed locally.
 - 2026-10-31: tried 1000 small balls (4.5 ms/frame), back to 80. Cyclone cloned into reference/ (gitignored). Brain: handover workflow added. Handover rewritten. Next: 3D ball scene.
+- 2026-10-31: setup.sh added (checks tools, clones Cyclone, extracts the book text, sets the git identity if missing). Tested in a fresh clone. contents.txt was cut off at 15.4.1 (pdf pages 8-14 only), now the full table of contents (pages 8-16).

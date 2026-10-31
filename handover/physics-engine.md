@@ -2,6 +2,8 @@ Read brain.md first.
 
 Project: hunter2 (this repo). A browser game in C, compiled to wasm, rendered with WebGPU through our own thin JS bridge. Engine written from scratch. The game may end up 2D or 3D, not decided yet.
 
+Setup: run ./setup.sh first. It checks the tools, clones the book's source code, extracts the book text and sets the git identity, and only does what is missing. If it reports MISSING, fix what you can (tools: ask before installing) and ask me for the rest. The book PDF is copyrighted and cannot be downloaded: I copy it into the repo root myself.
+
 Then read:
 - focus/physics-engine.md: this task. Book map, physics state, decisions, open questions, log.
 - focus/architecture.md, the Decisions section: code rules (layers, naming, unity build). They apply to all code.
@@ -9,7 +11,7 @@ Then read:
 
 The task: we build the game's physics engine in src/phys/ following Ian Millington's "Game Physics Engine Development". The engine is 3D and generic, like the book. You read the book for me and explain what matters, short or in depth when I ask. We work in small steps in book order. Write code only when I direct it, small first. I review the code and tell you my preferences. Keep focus/physics-engine.md up to date yourself. Ask before changing brain.md.
 
-The book: reference/millington.txt (pages split by form feed), reference/chapters.txt maps chapters to pages. Equations and figures do not survive as text, so read those pages from the PDF directly. Explain in your own words, no long excerpts. The book's own C++ source is in reference/cyclone-physics. The PDF, the extracted text and cyclone-physics are gitignored: if they are missing, ask me (the clone command is in .gitignore).
+The book: reference/millington.txt (pages split by form feed), reference/chapters.txt maps chapters to pages. Equations and figures do not survive as text, so read those pages from the PDF directly. Explain in your own words, no long excerpts. The book's own C++ source is in reference/cyclone-physics. All of these are gitignored, ./setup.sh makes them.
 
 Checks: ./build.sh builds the game, ./test.sh runs the phys tests headless. tests/headless/*.mjs run the real game with a fake WebGPU (FRAMES=60 node tests/headless/sim.mjs for a short run). Run them after changes. Only tell me about them when it matters.
 

@@ -2,13 +2,12 @@
 web/game.wasm
 tests/test.wasm
 
-# the book is copyrighted: keep it out of git, copy it to a new machine by hand
+# the book is copyrighted: keep it out of git. copy the pdf in by hand, ./setup.sh makes the .txt files
 *.pdf
 reference/millington.txt
 reference/contents.txt
 
-# the book's source code (Cyclone, MIT), a local clone for quick lookups:
-# git clone https://github.com/idmillington/cyclone-physics.git reference/cyclone-physics
+# the book's source code (Cyclone, MIT), a local clone for quick lookups. ./setup.sh clones it
 reference/cyclone-physics/
 
 # macOS
