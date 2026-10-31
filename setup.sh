@@ -3,20 +3,32 @@
 # Safe to run again, it only does what is missing.
 cd "$(dirname "$0")"
 missing=0
-BOOK="Game Physics Engine Development - Ian Millington.pdf"
+# any copy of the book in the repo root, whatever the exact file name
+BOOK=$(ls Game\ Physics\ Engine\ Development*.pdf 2>/dev/null | head -n 1)
 
-check_tool() { # name, path or command, how to get it
-    if [ -x "$2" ] || command -v "$2" >/dev/null 2>&1; then
+check_tool() { # command, what provides it
+    if command -v "$1" >/dev/null 2>&1; then
         echo "ok       $1"
     else
-        echo "MISSING  $1 ($3)"
+        echo "MISSING  $1 (install $2, it must be on PATH)"
         missing=1
     fi
 }
-check_tool clang /opt/homebrew/opt/llvm/bin/clang "brew install llvm"
-check_tool wasm-ld /opt/homebrew/opt/lld/bin/wasm-ld "brew install lld"
-check_tool node node "brew install node"
-check_tool pdftotext pdftotext "brew install poppler"
+check_tool node node
+check_tool pdftotext poppler
+
+# build a tiny wasm the same way build.sh does: catches a clang without the wasm32 target or a missing wasm-ld
+CLANG=${CLANG:-clang}
+tmp=$(mktemp -d)
+echo 'int f(void) { return 1; }' > "$tmp/t.c"
+if "$CLANG" --target=wasm32 -ffreestanding -nostdlib ${WASM_LD:+--ld-path="$WASM_LD"} -Wl,--no-entry -Wl,--export=f \
+    -o "$tmp/t.wasm" "$tmp/t.c" >/dev/null 2>&1; then
+    echo "ok       clang + wasm-ld (wasm32 build)"
+else
+    echo "MISSING  clang + wasm-ld that can build wasm32 (install LLVM clang and lld, on PATH or set CLANG / WASM_LD)"
+    missing=1
+fi
+rm -rf "$tmp"
 
 if [ -d reference/cyclone-physics ]; then
     echo "ok       reference/cyclone-physics"
@@ -25,8 +37,8 @@ else
 fi
 
 # the book is copyrighted, so it is not in git and cannot be downloaded: the user copies it in by hand
-if [ ! -f "$BOOK" ]; then
-    echo "MISSING  $BOOK (copy it into the repo root by hand)"
+if [ -z "$BOOK" ]; then
+    echo "MISSING  Game Physics Engine Development*.pdf (copy it into the repo root by hand)"
     missing=1
 elif command -v pdftotext >/dev/null 2>&1; then
     if [ -f reference/millington.txt ]; then

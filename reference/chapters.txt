@@ -1,33 +1,33 @@
 Game Physics Engine Development (Millington): chapter map
 pdf page = page in the PDF and in millington.txt (pages split by form feed). book page = pdf page - 23
 
-  ch  1  pdf  25  Introduction
+  ch  1  pdf  24  Introduction
 
 PART I   Particle Physics   (pdf 36)
-  ch  2  pdf  39  The Mathematics of Particles
-  ch  3  pdf  67  The Laws of Motion
-  ch  4  pdf  79  The Particle Physics Engine
+  ch  2  pdf  38  The Mathematics of Particles
+  ch  3  pdf  66  The Laws of Motion
+  ch  4  pdf  78  The Particle Physics Engine
 
 PART II  Mass-Aggregate Physics   (pdf 90)
-  ch  5  pdf  93  Adding General Forces
-  ch  6  pdf 105  Springs and Springlike Things
-  ch  7  pdf 127  Hard Constraints
-  ch  8  pdf 157  The Mass-Aggregate Physics Engine
+  ch  5  pdf  92  Adding General Forces
+  ch  6  pdf 104  Springs and Springlike Things
+  ch  7  pdf 126  Hard Constraints
+  ch  8  pdf 156  The Mass-Aggregate Physics Engine
 
 PART III Rigid-Body Physics   (pdf 166)
-  ch  9  pdf 169  The Mathematics of Rotations
-  ch 10  pdf 217  Laws of Motion for Rigid Bodies
-  ch 11  pdf 237  The Rigid-Body Physics Engine
+  ch  9  pdf 168  The Mathematics of Rotations
+  ch 10  pdf 216  Laws of Motion for Rigid Bodies
+  ch 11  pdf 236  The Rigid-Body Physics Engine
 
 PART IV  Collision Detection   (pdf 252)
-  ch 12  pdf 255  Collision Detection
-  ch 13  pdf 287  Generating Contacts
+  ch 12  pdf 254  Collision Detection
+  ch 13  pdf 286  Generating Contacts
 
 PART V   Contact Physics   (pdf 322)
-  ch 14  pdf 325  Collision Resolution
-  ch 15  pdf 375  Resting Contacts and Friction
-  ch 16  pdf 399  Stability and Optimization
-  ch 17  pdf 423  Putting It All Together
+  ch 14  pdf 324  Collision Resolution
+  ch 15  pdf 374  Resting Contacts and Friction
+  ch 16  pdf 398  Stability and Optimization
+  ch 17  pdf 422  Putting It All Together
 
 PART VI  What Comes Next?   (pdf 444)
-  ch 18  pdf 447  Other Types of Physics
+  ch 18  pdf 446  Other Types of Physics
