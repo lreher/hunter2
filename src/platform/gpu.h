@@ -95,7 +95,6 @@ void plat_gpu_destroy(GpuHandle h);
 
 void plat_gpu_write_buffer(GpuHandle buffer, i32 offset, const void *data, i32 size);
 void plat_gpu_write_texture(GpuHandle texture, const void *data, i32 w, i32 h, i32 bytes_per_row);
-void plat_gpu_load_image(GpuHandle texture, const char *url); // async, center square crop, scaled to the texture. needs RENDER_ATTACHMENT usage
 
 // one frame = one or more passes, draws go to the open pass. each begin_*_pass ends the pass before it
 void plat_gpu_begin_frame(void);

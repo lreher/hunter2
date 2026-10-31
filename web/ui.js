@@ -32,6 +32,24 @@ export function createUi(ctx) {
                 return Math.ceil(title.getBoundingClientRect().bottom * devicePixelRatio);
             },
             // logarithmic (log = 1): equal slider distance multiplies the value by the same amount, min must be > 0
+            // a button that picks an image file and puts it into a texture. stays in this browser tab, never uploaded
+            js_ui_image(namePtr, nameLen, texture) {
+                if (!panel) makePanel();
+                const label = document.createElement("span");
+                label.textContent = decoder.decode(new Uint8Array(ctx.memory.buffer, namePtr, nameLen));
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "image/*";
+                input.style.cssText = "grid-column:span 2;font:inherit;color:inherit";
+                input.addEventListener("change", () => {
+                    const file = input.files[0];
+                    if (!file) return;
+                    ctx.gpuLoadImage(texture, file)
+                        .then(() => console.log(`[js] image ${file.name} loaded into texture #${texture}`))
+                        .catch((e) => console.error(`[js] image ${file.name} failed: ${e.message}`));
+                });
+                panel.append(label, input);
+            },
             js_ui_slider(namePtr, nameLen, min, max, step, log, valuePtr) {
                 if (!panel) makePanel();
                 const name = decoder.decode(new Uint8Array(ctx.memory.buffer, namePtr, nameLen));

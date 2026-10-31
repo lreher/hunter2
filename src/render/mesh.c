@@ -87,7 +87,7 @@ static GpuHandle mesh_scene_buffer;
 static GpuHandle mesh_pipeline;
 static GpuHandle mesh_bind_group;
 
-// One photo for all spheres (render_draw_sphere_photo). Empty until render_load_sphere_photo's file arrives.
+// One photo for all spheres (render_draw_sphere_photo). Empty until the user picks one (render_add_photo_picker).
 #define MESH_PHOTO_SIZE 512
 static GpuHandle mesh_photo;
 static GpuHandle mesh_line_pipeline;
@@ -328,8 +328,8 @@ static MeshInstance mesh_instance(V3 center, V3 half_size, f32 r, f32 g, f32 b) 
     };
 }
 
-void render_load_sphere_photo(const char *url) {
-    plat_gpu_load_image(mesh_photo, url);
+void render_add_photo_picker(const char *name) {
+    plat_ui_image(name, mesh_photo);
 }
 
 static void mesh_add_sphere(V3 center, f32 radius, f32 r, f32 g, f32 b, f32 photo) {

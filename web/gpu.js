@@ -111,6 +111,17 @@ export async function createGpu(ctx) {
         depthTexture = make(DEPTH_FORMAT);
     }
 
+    // fills an existing texture from an image (a File or Blob), center square crop, scaled to the texture.
+    // on ctx so ui.js can hand it a file the user picked
+    ctx.gpuLoadImage = async (handle, blob) => {
+        const texture = get(handle, "texture");
+        const image = await createImageBitmap(blob);
+        const side = Math.min(image.width, image.height);
+        const square = await createImageBitmap(image, (image.width - side) / 2, (image.height - side) / 2, side, side,
+            { resizeWidth: texture.width, resizeHeight: texture.height, resizeQuality: "high" });
+        device.queue.copyExternalImageToTexture({ source: square }, { texture }, [texture.width, texture.height]);
+    };
+
     // frame state: encoder between begin_frame and end_frame, pass between begin_*_pass and the next pass or end_frame
     let encoder = null;
     let pass = null;
@@ -233,26 +244,6 @@ export async function createGpu(ctx) {
         js_gpu_write_texture(handle, ptr, w, h, bytesPerRow) {
             const data = new Uint8Array(ctx.memory.buffer, ptr, bytesPerRow * h);
             device.queue.writeTexture({ texture: get(handle, "texture") }, data, { bytesPerRow }, [w, h]);
-        },
-
-        // fills an existing texture from an image file, squashed to its size. async: the texture keeps its
-        // old contents (zeros) until the image arrives, and stays that way if the file is missing
-        js_gpu_load_image(handle, urlPtr, urlLen) {
-            const texture = get(handle, "texture");
-            const url = decoder.decode(new Uint8Array(ctx.memory.buffer, urlPtr, urlLen));
-            fetch(url)
-                .then((r) => { if (!r.ok) throw new Error(r.status); return r.blob(); })
-                .then((blob) => createImageBitmap(blob))
-                .then((image) => {
-                    const side = Math.min(image.width, image.height); // center square crop
-                    return createImageBitmap(image, (image.width - side) / 2, (image.height - side) / 2, side, side,
-                        { resizeWidth: texture.width, resizeHeight: texture.height, resizeQuality: "high" });
-                })
-                .then((square) => {
-                    device.queue.copyExternalImageToTexture({ source: square }, { texture }, [texture.width, texture.height]);
-                    console.log(`[js] gpu loaded image ${url} into texture #${handle}`);
-                })
-                .catch((e) => console.log(`[js] gpu image ${url} not loaded (${e.message}), texture left empty`));
         },
 
         js_gpu_begin_frame() {

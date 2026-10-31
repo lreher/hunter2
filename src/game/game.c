@@ -125,10 +125,10 @@ void game_init(void) {
     plat_log("hello from C");
 
     render_init();
-    render_load_sphere_photo("photo.png"); // web/photo.png, kept out of git. without it the balls stay plain
     plat_log_i32("gpu calls at init", plat_gpu_stats.calls);
 
     plat_ui_title("Erasmos Balls");
+    render_add_photo_picker("photo"); // until a photo is picked, the balls stay plain
     plat_ui_slider_log("balls", 1, GAME_MAX_BALLS, 1, &game_ball_count);
     plat_ui_slider("min radius", 0.05f, 0.5f, 0.01f, &game_radius_min);
     plat_ui_slider("max radius", 0.05f, 1.0f, 0.01f, &game_radius_max);

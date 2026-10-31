@@ -24,6 +24,7 @@ IMPORT("js_mouse_dy") f64 js_mouse_dy(void);
 // web/ui.js
 IMPORT("js_ui_title") void js_ui_title(const char *s, i32 len);
 IMPORT("js_ui_title_bottom") i32 js_ui_title_bottom(void);
+IMPORT("js_ui_image") void js_ui_image(const char *name, i32 len, GpuHandle texture);
 IMPORT("js_ui_slider") void js_ui_slider(const char *name, i32 len, f32 min, f32 max, f32 step, i32 log, f32 *value);
 
 // web/gpu.js. only platform/gpu.c should call these, everyone else uses plat_gpu_*
@@ -35,7 +36,6 @@ IMPORT("js_gpu_create_pipeline") GpuHandle js_gpu_create_pipeline(const void *de
 IMPORT("js_gpu_create_bind_group") GpuHandle js_gpu_create_bind_group(const void *desc, i32 size);
 IMPORT("js_gpu_destroy") void js_gpu_destroy(GpuHandle h);
 IMPORT("js_gpu_write_buffer") void js_gpu_write_buffer(GpuHandle buffer, i32 offset, const void *data, i32 size);
-IMPORT("js_gpu_load_image") void js_gpu_load_image(GpuHandle texture, const char *url, i32 len);
 IMPORT("js_gpu_write_texture") void js_gpu_write_texture(GpuHandle texture, const void *data, i32 w, i32 h, i32 bytes_per_row);
 IMPORT("js_gpu_begin_frame") void js_gpu_begin_frame(void);
 IMPORT("js_gpu_begin_depth_pass") void js_gpu_begin_depth_pass(GpuHandle depth_texture);
@@ -56,6 +56,7 @@ f64 plat_now_ms(void); // milliseconds, for measuring how long things take
 // debug panel. adds a slider that writes straight into *value whenever it moves. call once, at init
 void plat_ui_slider(const char *name, f32 min, f32 max, f32 step, f32 *value);
 void plat_ui_slider_log(const char *name, f32 min, f32 max, f32 step, f32 *value); // small values get more room. min > 0
+void plat_ui_image(const char *name, GpuHandle texture); // file picker, the image goes into the texture (needs COPY_DST + RENDER_ATTACHMENT)
 void plat_ui_title(const char *s);   // big green title in the top left corner
 i32 plat_ui_title_bottom(void);      // where the title ends, in screen pixels from the top. draw below it
 

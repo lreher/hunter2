@@ -9,8 +9,6 @@ const types = {
     ".html": "text/html",
     ".js": "text/javascript",
     ".wasm": "application/wasm", // needed for instantiateStreaming
-    ".jpg": "image/jpeg",
-    ".png": "image/png",
 };
 
 http.createServer((req, res) => {
