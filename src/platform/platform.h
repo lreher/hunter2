@@ -35,6 +35,7 @@ IMPORT("js_gpu_create_pipeline") GpuHandle js_gpu_create_pipeline(const void *de
 IMPORT("js_gpu_create_bind_group") GpuHandle js_gpu_create_bind_group(const void *desc, i32 size);
 IMPORT("js_gpu_destroy") void js_gpu_destroy(GpuHandle h);
 IMPORT("js_gpu_write_buffer") void js_gpu_write_buffer(GpuHandle buffer, i32 offset, const void *data, i32 size);
+IMPORT("js_gpu_load_image") void js_gpu_load_image(GpuHandle texture, const char *url, i32 len);
 IMPORT("js_gpu_write_texture") void js_gpu_write_texture(GpuHandle texture, const void *data, i32 w, i32 h, i32 bytes_per_row);
 IMPORT("js_gpu_begin_frame") void js_gpu_begin_frame(void);
 IMPORT("js_gpu_begin_depth_pass") void js_gpu_begin_depth_pass(GpuHandle depth_texture);

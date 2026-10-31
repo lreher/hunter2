@@ -235,6 +235,26 @@ export async function createGpu(ctx) {
             device.queue.writeTexture({ texture: get(handle, "texture") }, data, { bytesPerRow }, [w, h]);
         },
 
+        // fills an existing texture from an image file, squashed to its size. async: the texture keeps its
+        // old contents (zeros) until the image arrives, and stays that way if the file is missing
+        js_gpu_load_image(handle, urlPtr, urlLen) {
+            const texture = get(handle, "texture");
+            const url = decoder.decode(new Uint8Array(ctx.memory.buffer, urlPtr, urlLen));
+            fetch(url)
+                .then((r) => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+                .then((blob) => createImageBitmap(blob))
+                .then((image) => {
+                    const side = Math.min(image.width, image.height); // center square crop
+                    return createImageBitmap(image, (image.width - side) / 2, (image.height - side) / 2, side, side,
+                        { resizeWidth: texture.width, resizeHeight: texture.height, resizeQuality: "high" });
+                })
+                .then((square) => {
+                    device.queue.copyExternalImageToTexture({ source: square }, { texture }, [texture.width, texture.height]);
+                    console.log(`[js] gpu loaded image ${url} into texture #${handle}`);
+                })
+                .catch((e) => console.log(`[js] gpu image ${url} not loaded (${e.message}), texture left empty`));
+        },
+
         js_gpu_begin_frame() {
             if (encoder) fail("gpu: begin_frame called twice");
             encoder = device.createCommandEncoder();

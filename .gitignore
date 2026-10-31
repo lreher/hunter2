@@ -12,3 +12,7 @@ reference/cyclone-physics/
 
 # macOS
 .DS_Store
+
+# the ball photo (web/photo.png), may be of a real person: keep it out of git
+web/photo.png
+web/photo.jpg

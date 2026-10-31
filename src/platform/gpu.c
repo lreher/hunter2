@@ -52,6 +52,11 @@ void plat_gpu_write_texture(GpuHandle texture, const void *data, i32 w, i32 h, i
     js_gpu_write_texture(texture, data, w, h, bytes_per_row);
 }
 
+void plat_gpu_load_image(GpuHandle texture, const char *url) {
+    plat_gpu_stats.calls++;
+    js_gpu_load_image(texture, url, str_len(url));
+}
+
 void plat_gpu_begin_frame(void) {
     plat_gpu_stats = (PlatGpuStats){0};
     plat_gpu_stats.calls++;

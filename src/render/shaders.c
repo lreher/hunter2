@@ -94,6 +94,8 @@ static const char render_shader_mesh[] =
     "@group(0) @binding(2) var<storage, read> grid: array<u32>;\n" // cell c lists grid[grid[c]] .. grid[grid[c + 1] - 1]
     "@group(0) @binding(3) var shadow_map: texture_depth_2d;\n"
     "@group(0) @binding(4) var shadow_sampler: sampler_comparison;\n"
+    "@group(0) @binding(5) var photo: texture_2d<f32>;\n"
+    "@group(0) @binding(6) var photo_sampler: sampler;\n"
     "\n"
     RENDER_SHADER_INSTANCE
     "\n"
@@ -102,11 +104,13 @@ static const char render_shader_mesh[] =
     "    @location(0) normal: vec3f,\n"
     "    @location(1) color: vec4f,\n"
     "    @location(2) world: vec3f,\n"
+    "    @location(3) center: vec4f,\n" // w = 1: show the photo
     "};\n"
     "\n"
     "@vertex fn vs(i: In) -> VOut {\n"
     "    let world = world_position(i);\n"
     "    var o: VOut;\n"
+    "    o.center = i.center;\n"
     "    o.pos = scene.view_proj * vec4f(world, 1.0);\n"
     "    o.normal = rotate(i.rotation, i.normal / i.half_size.xyz);\n" // stretched shapes bend their normals the other way
     "    o.color = i.color;\n"
@@ -161,7 +165,19 @@ static const char render_shader_mesh[] =
     "    let sun = sun_visible(p, n);\n"
     "    let ambient = sky_open(p, n);\n"
     "\n"
-    "    let albedo = pow(i.color.rgb, vec3f(2.2));\n"
+    "    var color = i.color.rgb;\n"
+    // photo facing the camera: look at the ball from the camera, the photo's center is the ball's center.
+    // the visible half maps to a disc on the photo (its inscribed circle). shading still uses the real normal
+    "    if (i.center.w > 0.5) {\n"
+    "        let toward = normalize(scene.eye.xyz - i.center.xyz);\n"
+    "        let side = normalize(cross(vec3f(0.0, 1.0, 0.0), toward));\n" // breaks only looking straight down
+    "        let up = cross(toward, side);\n"
+    "        let d = normalize(p - i.center.xyz);\n"
+    "        let uv = vec2f(0.5 + 0.5 * dot(d, side), 0.5 - 0.5 * dot(d, up));\n"
+    "        let texel = textureSampleLevel(photo, photo_sampler, uv, 0.0);\n"
+    "        color = mix(color, texel.rgb, texel.a * step(0.0, dot(d, toward)));\n" // empty texture (alpha 0): plain color
+    "    }\n"
+    "    let albedo = pow(color, vec3f(2.2));\n"
     "    let diffuse = max(dot(n, l), 0.0) * sun;\n"
     "    let h = normalize(l + normalize(scene.eye.xyz - p));\n"
     "    let specular = pow(max(dot(n, h), 0.0), 32.0) * 0.12 * sun * step(0.0, dot(n, l));\n"

@@ -16,7 +16,7 @@ typedef struct {
 
 // One drawn object. Layout must match the pipeline attributes below and Sphere in shaders.c (64 bytes).
 typedef struct {
-    f32 x, y, z, pad0;
+    f32 x, y, z, photo;   // photo: 1 = show the sphere photo facing the camera (spheres only)
     f32 hx, hy, hz, pad1; // half size per axis (radius for spheres)
     f32 qx, qy, qz, qw;   // rotation quaternion. identity until rigid bodies need it
     f32 r, g, b, a;
@@ -86,6 +86,10 @@ static MeshScene mesh_scene;
 static GpuHandle mesh_scene_buffer;
 static GpuHandle mesh_pipeline;
 static GpuHandle mesh_bind_group;
+
+// One photo for all spheres (render_draw_sphere_photo). Empty until render_load_sphere_photo's file arrives.
+#define MESH_PHOTO_SIZE 512
+static GpuHandle mesh_photo;
 static GpuHandle mesh_line_pipeline;
 static GpuHandle mesh_line_bind_group;
 
@@ -249,14 +253,18 @@ static void render_mesh_init(void) {
     pipeline.cull = GPU_CULL_BACK;
     mesh_pipeline = plat_gpu_create_pipeline(&pipeline);
 
+    mesh_photo = plat_gpu_create_texture(MESH_PHOTO_SIZE, MESH_PHOTO_SIZE, GPU_FORMAT_RGBA8,
+                                         GPU_TEXTURE_BINDING | GPU_TEXTURE_COPY_DST | GPU_TEXTURE_RENDER_ATTACHMENT);
     GpuBindGroupDesc bind_group = {0};
     bind_group.pipeline = mesh_pipeline;
-    bind_group.entry_count = 5;
+    bind_group.entry_count = 7;
     bind_group.entries[0] = (GpuBindEntry){0, GPU_BIND_UNIFORM, mesh_scene_buffer};
     bind_group.entries[1] = (GpuBindEntry){1, GPU_BIND_STORAGE, mesh_sphere_buffer};
     bind_group.entries[2] = (GpuBindEntry){2, GPU_BIND_STORAGE, mesh_grid_buffer};
     bind_group.entries[3] = (GpuBindEntry){3, GPU_BIND_TEXTURE, mesh_shadow_map};
     bind_group.entries[4] = (GpuBindEntry){4, GPU_BIND_SAMPLER, plat_gpu_create_sampler(GPU_FILTER_SHADOW)};
+    bind_group.entries[5] = (GpuBindEntry){5, GPU_BIND_TEXTURE, mesh_photo};
+    bind_group.entries[6] = (GpuBindEntry){6, GPU_BIND_SAMPLER, plat_gpu_create_sampler(GPU_FILTER_LINEAR)};
     mesh_bind_group = plat_gpu_create_bind_group(&bind_group);
 
     // same instances and attributes, seen from the sun, depth only
@@ -320,7 +328,11 @@ static MeshInstance mesh_instance(V3 center, V3 half_size, f32 r, f32 g, f32 b) 
     };
 }
 
-void render_draw_sphere(V3 center, f32 radius, f32 r, f32 g, f32 b) {
+void render_load_sphere_photo(const char *url) {
+    plat_gpu_load_image(mesh_photo, url);
+}
+
+static void mesh_add_sphere(V3 center, f32 radius, f32 r, f32 g, f32 b, f32 photo) {
     if (mesh_sphere_count >= MESH_MAX_INSTANCES) return;
     // distance in front of the camera (clip w). behind the camera only the shadow is seen, the same distance away
     f32 *m = mesh_scene.view_proj;
@@ -333,7 +345,17 @@ void render_draw_sphere(V3 center, f32 radius, f32 r, f32 g, f32 b) {
         while (level < MESH_SPHERE_LODS - 1 && pixels > mesh_sphere_lod_max_pixels[level]) level++;
     }
     mesh_sphere_levels[mesh_sphere_count] = (u8)level;
-    mesh_sphere_instances[mesh_sphere_count++] = mesh_instance(center, v3_create(radius, radius, radius), r, g, b);
+    MeshInstance instance = mesh_instance(center, v3_create(radius, radius, radius), r, g, b);
+    instance.photo = photo;
+    mesh_sphere_instances[mesh_sphere_count++] = instance;
+}
+
+void render_draw_sphere(V3 center, f32 radius, f32 r, f32 g, f32 b) {
+    mesh_add_sphere(center, radius, r, g, b, 0);
+}
+
+void render_draw_sphere_photo(V3 center, f32 radius, f32 r, f32 g, f32 b) {
+    mesh_add_sphere(center, radius, r, g, b, 1);
 }
 
 void render_draw_box(V3 center, V3 half_size, f32 r, f32 g, f32 b) {

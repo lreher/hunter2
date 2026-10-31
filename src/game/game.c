@@ -125,6 +125,7 @@ void game_init(void) {
     plat_log("hello from C");
 
     render_init();
+    render_load_sphere_photo("photo.png"); // web/photo.png, kept out of git. without it the balls stay plain
     plat_log_i32("gpu calls at init", plat_gpu_stats.calls);
 
     plat_ui_title("Erasmos Balls");
@@ -244,7 +245,7 @@ static void game_draw(f32 alpha, f32 seconds) {
         if (game_show_overlaps && ball->overlap_glow > 0) {
             render_draw_sphere(positions[i], ball->radius, 1, 1, 1);
         } else {
-            render_draw_sphere(positions[i], ball->radius, ball->r, ball->g, ball->b);
+            render_draw_sphere_photo(positions[i], ball->radius, ball->r, ball->g, ball->b);
         }
         ball->overlap_glow -= seconds;
     }

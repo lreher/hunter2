@@ -17,6 +17,8 @@ void render_draw_text_centered(const char *s, f32 scale, f32 r, f32 g, f32 b);
 void render_set_camera(M4 view_projection, V3 eye); // call once per frame, after render_begin, before drawing
 void render_set_shadow_area(V3 min, V3 max);        // box that gets sun shadows. tighter = sharper shadows
 void render_draw_sphere(V3 center, f32 radius, f32 r, f32 g, f32 b);
+void render_draw_sphere_photo(V3 center, f32 radius, f32 r, f32 g, f32 b); // the photo faces the camera. color shows until it loads
+void render_load_sphere_photo(const char *url); // one photo for all spheres, loads in the background. call after render_init
 void render_draw_box(V3 center, V3 half_size, f32 r, f32 g, f32 b); // axis aligned for now, rotation comes with rigid bodies
 void render_draw_line(V3 from, V3 to, f32 r, f32 g, f32 b);         // 1 pixel wide (WebGPU lines)
 
