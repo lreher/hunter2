@@ -77,7 +77,10 @@ void particle_contacts_bounce(ParticleContact *list, i32 count, i32 passes);
 // Force generators (ch 5): a force that is asked every step to add itself to a particle.
 // A kind and a switch, not function pointers, so the force math can be inlined into the loop.
 // No per particle data, so one generator can serve any number of particles.
-typedef enum { FORCE_GRAVITY, FORCE_DRAG, FORCE_ATTRACT, FORCE_EXPLODE } ForceKind;
+typedef enum {
+    FORCE_GRAVITY, FORCE_DRAG, FORCE_ATTRACT, FORCE_EXPLODE,
+    FORCE_SPRING, FORCE_ANCHORED_SPRING, FORCE_BUNGEE, FORCE_ANCHORED_BUNGEE, FORCE_BUOYANCY,
+} ForceKind;
 typedef struct {
     ForceKind kind;
     union {
@@ -85,6 +88,23 @@ typedef struct {
         struct { real k1, k2; } drag; // FORCE_DRAG: k1 * speed + k2 * speed^2, against the velocity
         struct { Particle *other; real g; } attract; // FORCE_ATTRACT: pull toward other, g m1 m2 / r^2 (book 3.2, eq 3.3)
         struct { V3 center; real force; } explode;   // FORCE_EXPLODE: push straight away from center, the same force on every mass
+        // springs (ch 6, Hooke's law): k (length - rest) toward the other end. pulls when stretched, pushes when
+        // compressed. one generator per end: a spring between two bodies needs one on each
+        struct { Particle *other; real k, rest; } spring;          // FORCE_SPRING: other end on another body
+        struct { V3 anchor; real k, rest; } anchored_spring;       // FORCE_ANCHORED_SPRING: other end fixed. move it by writing anchor
+        struct { Particle *other; real k, rest; } bungee;          // FORCE_BUNGEE: a spring that only pulls
+        struct { V3 anchor; real k, rest; } anchored_bungee;       // FORCE_ANCHORED_BUNGEE
+        // FORCE_BUOYANCY (book 6.2.4): water below the plane y = water_height. The share under water, d, goes from 0
+        // (center depth above the surface) to 1 (depth below it), straight in between. Pushes up with
+        // d * density * volume * gravity (the weight of the water pushed aside) and slows it with d * drag * velocity
+        struct {
+            real water_height; // m, y of the surface. move it by writing it
+            real depth;        // m, > 0. for a ball, its radius
+            real volume;       // m^3
+            real density;      // kg/m^3 of the water, fresh water 1000
+            real gravity;      // m/s^2, down. the book left it out, so its force was a mass
+            real drag;         // N per m/s when fully under. 0 = none, like the book
+        } buoyancy;
     };
 } ForceGen;
 
@@ -92,6 +112,11 @@ ForceGen force_gravity(V3 gravity);
 ForceGen force_drag(real k1, real k2);
 ForceGen force_attract(Particle *other, real g); // no pull on other itself, or if either mass is infinite
 ForceGen force_explode(V3 center, real force);   // a blast (simple version of book 17.2.3). nothing at the center itself
+ForceGen force_spring(Particle *other, real k, real rest); // k: N/m, rest: m. nothing when both ends are on one spot
+ForceGen force_anchored_spring(V3 anchor, real k, real rest);
+ForceGen force_bungee(Particle *other, real k, real rest);
+ForceGen force_anchored_bungee(V3 anchor, real k, real rest);
+ForceGen force_buoyancy(real water_height, real depth, real volume, real density, real gravity, real drag);
 FORCE_INLINE void force_update(ForceGen *g, Particle *p, real dt); // adds g's force to p for this step
 
 // Which generator acts on which particle. Run force_registry_update before integrating.

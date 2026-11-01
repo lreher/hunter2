@@ -15,7 +15,7 @@ typedef struct {
 } Demo;
 
 // in book order
-enum { DEMO_BALLS, DEMO_CLOUD, DEMO_COUNT };
+enum { DEMO_BALLS, DEMO_CLOUD, DEMO_BRIDGE, DEMO_POOL, DEMO_COUNT };
 extern Demo demo_list[DEMO_COUNT];
 
 // Calls into a demo. Plain switches, not function pointers, so step and draw can be forced inline (see FORCE_INLINE)

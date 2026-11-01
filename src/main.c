@@ -24,6 +24,8 @@
 #include "demo/demo.h"
 #include "demo/balls.c"
 #include "demo/cloud.c"
+#include "demo/bridge.c"
+#include "demo/pool.c"
 #include "demo/demo.c"
 
 #include "game/game.h"

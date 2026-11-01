@@ -1,0 +1,7 @@
+--target=wasm32
+-ffreestanding
+-nostdlib
+-mbulk-memory
+-Isrc
+-Wall
+-Wextra

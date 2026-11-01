@@ -166,6 +166,126 @@ static void test_force_explode(void) {
     CHECK(middle.force_accum.x == 0 && middle.force_accum.y == 0 && middle.force_accum.z == 0); // at the center, not NaN
 }
 
+static void test_force_springs(void) {
+    Particle a = {0}, b = {0};
+    particle_set_mass(&a, 1);
+    particle_set_mass(&b, 1);
+    b.position = v3_create(3, 0, 0);
+    ForceGen to_b = force_spring(&b, 2, 1), to_a = force_spring(&a, 2, 1);
+    force_update(&to_b, &a, 1);
+    force_update(&to_a, &b, 1);
+    NEAR(a.force_accum.x, 4);            // stretched 2 m, k 2: pulls a toward b
+    NEAR(b.force_accum.x, -4);           // and b toward a
+    NEAR(a.force_accum.y, 0);
+
+    particle_clear_force_accum(&a);
+    b.position = v3_create(0.5f, 0, 0);
+    force_update(&to_b, &a, 1);
+    NEAR(a.force_accum.x, -1);           // compressed 0.5 m: pushes a away from b (the book's abs pulled here)
+
+    particle_clear_force_accum(&a);
+    b.position = a.position;
+    force_update(&to_b, &a, 1);
+    CHECK(a.force_accum.x == 0 && a.force_accum.y == 0 && a.force_accum.z == 0); // one spot: no NaN
+
+    ForceGen hang = force_anchored_spring(v3_create(0, 5, 0), 10, 2);
+    particle_clear_force_accum(&a);
+    force_update(&hang, &a, 1);
+    NEAR(a.force_accum.y, 30);           // stretched 3 m toward the anchor
+    hang.anchored_spring.anchor = v3_create(0, 1, 0); // the game moves the anchor
+    particle_clear_force_accum(&a);
+    force_update(&hang, &a, 1);
+    NEAR(a.force_accum.y, -10);          // compressed 1 m: pushes away
+
+    ForceGen cord = force_bungee(&b, 2, 1);
+    b.position = v3_create(0.5f, 0, 0);
+    particle_clear_force_accum(&a);
+    force_update(&cord, &a, 1);
+    CHECK(a.force_accum.x == 0);         // slack: nothing
+    b.position = v3_create(3, 0, 0);
+    force_update(&cord, &a, 1);
+    NEAR(a.force_accum.x, 4);            // stretched: a normal spring
+
+    ForceGen jump = force_anchored_bungee(v3_create(0, 5, 0), 10, 2);
+    a.position = v3_create(0, 4, 0);
+    particle_clear_force_accum(&a);
+    force_update(&jump, &a, 1);
+    CHECK(a.force_accum.y == 0);         // 1 m from the anchor, rest 2: slack
+    a.position = v3_create(0, 0, 0);
+    force_update(&jump, &a, 1);
+    NEAR(a.force_accum.y, 30);
+}
+
+// 1 kg on a spring with k = 4 pi^2 swings once per second. Semi-implicit Euler at 1/60 neither grows nor
+// loses the swing: after 10 periods it is back at the start, and it never went past it
+static void test_spring_oscillates(void) {
+    Particle p = {0};
+    particle_set_mass(&p, 1);
+    p.damping = 1;
+    p.position = v3_create(1, 0, 0);
+    ForceGen s = force_anchored_spring(v3_create(0, 0, 0), 4 * F32_PI * F32_PI, 0);
+    real widest = 0;
+    for (i32 i = 0; i < 600; i++) {
+        force_update(&s, &p, 1.0f / 60.0f);
+        particle_integrate(&p, 1.0f / 60.0f);
+        real x = p.position.x < 0 ? -p.position.x : p.position.x;
+        if (x > widest) widest = x;
+    }
+    CHECK(near(p.position.x, 1, 0.01f));
+    CHECK(widest < 1.01f);
+}
+
+static void test_force_buoyancy(void) {
+    // water surface at y 2, depth 0.5, 0.01 m^3 in water 1000 at g 10: 100 N when all under
+    ForceGen b = force_buoyancy(2, 0.5f, 0.01f, 1000, 10, 4);
+    Particle p = {0};
+    particle_set_mass(&p, 1);
+    p.position = v3_create(0, 2.5f, 0);
+    force_update(&b, &p, 1);
+    CHECK(p.force_accum.y == 0);         // just out
+    p.position.y = 2;
+    force_update(&b, &p, 1);
+    NEAR(p.force_accum.y, 50);           // center at the surface: half under
+    particle_clear_force_accum(&p);
+    p.position.y = 1.75f;
+    force_update(&b, &p, 1);
+    NEAR(p.force_accum.y, 75);           // straight in between
+    particle_clear_force_accum(&p);
+    p.position.y = -5;
+    force_update(&b, &p, 1);
+    NEAR(p.force_accum.y, 100);          // deep: no more than all under
+
+    particle_clear_force_accum(&p);
+    p.velocity = v3_create(1, -2, 0);
+    force_update(&b, &p, 1);
+    NEAR(p.force_accum.x, -4);           // drag against the motion, full under water
+    NEAR(p.force_accum.y, 108);
+    particle_clear_force_accum(&p);
+    p.position.y = 2;
+    force_update(&b, &p, 1);
+    NEAR(p.force_accum.x, -2);           // half under: half the drag
+    particle_clear_force_accum(&p);
+    p.position.y = 3;
+    force_update(&b, &p, 1);
+    CHECK(p.force_accum.x == 0 && p.force_accum.y == 0); // in the air: nothing
+}
+
+// a body half as dense as the water floats half under, with its center on the surface. drag stops the bobbing
+static void test_buoyancy_floats(void) {
+    Particle p = {0};
+    particle_set_mass(&p, 5);            // 0.01 m^3 at 500 kg/m^3
+    p.damping = 1;
+    p.acceleration = v3_create(0, -10, 0);
+    p.position = v3_create(0, 4, 0);
+    ForceGen b = force_buoyancy(2, 0.5f, 0.01f, 1000, 10, 20);
+    for (i32 i = 0; i < 600; i++) {
+        force_update(&b, &p, 1.0f / 60.0f);
+        particle_integrate(&p, 1.0f / 60.0f);
+    }
+    CHECK(near(p.position.y, 2, 0.01f));
+    CHECK(near(p.velocity.y, 0, 0.01f));
+}
+
 static void test_force_registry(void) {
     ForceGen g = force_gravity(v3_create(0, -10, 0));
     ForceGen d = force_drag(1, 0);
@@ -606,6 +726,10 @@ __attribute__((export_name("run_tests"))) i32 run_tests(void) {
     test_force_drag();
     test_force_attract();
     test_force_explode();
+    test_force_springs();
+    test_spring_oscillates();
+    test_force_buoyancy();
+    test_buoyancy_floats();
     test_force_registry();
     test_mass();
     test_damping();

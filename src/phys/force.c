@@ -17,8 +17,40 @@ ForceGen force_explode(V3 center, real force) {
     return (ForceGen){.kind = FORCE_EXPLODE, .explode = {center, force}};
 }
 
+ForceGen force_spring(Particle *other, real k, real rest) {
+    return (ForceGen){.kind = FORCE_SPRING, .spring = {other, k, rest}};
+}
+
+ForceGen force_anchored_spring(V3 anchor, real k, real rest) {
+    return (ForceGen){.kind = FORCE_ANCHORED_SPRING, .anchored_spring = {anchor, k, rest}};
+}
+
+ForceGen force_bungee(Particle *other, real k, real rest) {
+    return (ForceGen){.kind = FORCE_BUNGEE, .bungee = {other, k, rest}};
+}
+
+ForceGen force_anchored_bungee(V3 anchor, real k, real rest) {
+    return (ForceGen){.kind = FORCE_ANCHORED_BUNGEE, .anchored_bungee = {anchor, k, rest}};
+}
+
+ForceGen force_buoyancy(real water_height, real depth, real volume, real density, real gravity, real drag) {
+    return (ForceGen){.kind = FORCE_BUOYANCY, .buoyancy = {water_height, depth, volume, density, gravity, drag}};
+}
+
+// Hooke's law (book eq 6.1) with d = end - position, so the force points along d when stretched.
+// No abs on (length - rest) like the book's ParticleSpring has: with it a compressed spring pulls too.
+// pull_only: a bungee, nothing while it is not stretched
+FORCE_INLINE void force_hooke(Particle *p, V3 end, real k, real rest, i32 pull_only) {
+    V3 d = v3_subtracted(end, p->position);
+    real r2 = v3_square_magnitude(d);
+    if (r2 == 0) return; // both ends on one spot: no direction
+    real length = real_sqrt(r2);
+    if (pull_only && length <= rest) return;
+    particle_add_force(p, v3_multiplied(d, k * (length - rest) / length));
+}
+
 FORCE_INLINE void force_update(ForceGen *g, Particle *p, real dt) {
-    (void)dt; // no generator needs it yet. springs (ch 6) will
+    (void)dt; // no generator needs it yet. faked stiff springs (6.3) will
     switch (g->kind) {
     case FORCE_GRAVITY:
         if (!particle_has_finite_mass(p)) return;
@@ -49,6 +81,29 @@ FORCE_INLINE void force_update(ForceGen *g, Particle *p, real dt) {
         real r2 = v3_square_magnitude(d);
         if (r2 == 0) return; // at the center: no direction
         particle_add_force(p, v3_multiplied(d, g->explode.force / real_sqrt(r2)));
+        break;
+    }
+    case FORCE_SPRING:
+        force_hooke(p, g->spring.other->position, g->spring.k, g->spring.rest, 0);
+        break;
+    case FORCE_ANCHORED_SPRING:
+        force_hooke(p, g->anchored_spring.anchor, g->anchored_spring.k, g->anchored_spring.rest, 0);
+        break;
+    case FORCE_BUNGEE:
+        force_hooke(p, g->bungee.other->position, g->bungee.k, g->bungee.rest, 1);
+        break;
+    case FORCE_ANCHORED_BUNGEE:
+        force_hooke(p, g->anchored_bungee.anchor, g->anchored_bungee.k, g->anchored_bungee.rest, 1);
+        break;
+    case FORCE_BUOYANCY: {
+        // the book has d = (y - water - depth) / 2 depth, which runs 0 to -1 going in, so it pulled things down.
+        // flipped here
+        real depth = g->buoyancy.depth;
+        real d = (g->buoyancy.water_height - p->position.y + depth) / (2 * depth);
+        if (d <= 0) return; // out of the water
+        if (d > 1) d = 1;   // all under: deeper pushes no more water aside
+        p->force_accum.y += d * g->buoyancy.density * g->buoyancy.volume * g->buoyancy.gravity;
+        particle_add_force(p, v3_multiplied(p->velocity, -d * g->buoyancy.drag));
         break;
     }
     }

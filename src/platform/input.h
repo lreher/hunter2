@@ -20,6 +20,7 @@ enum {
     KEY_O,
     KEY_BRACKET_LEFT,
     KEY_BRACKET_RIGHT,
+    KEY_R,
 };
 
 // down = held right now. pressed = went down since the last frame (key repeat does not count)
