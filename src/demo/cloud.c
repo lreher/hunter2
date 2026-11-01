@@ -10,6 +10,7 @@
 
 #define CLOUD_MAX 500 // gravity and collisions are both all pairs
 #define CLOUD_SOLVER_PASSES 4
+#define CLOUD_MAX_CONTACTS (CLOUD_MAX * 16) // a body touches a few others, plus the ones it could reach this step
 #define CLOUD_RADIUS 6.0f    // m, start cloud
 #define CLOUD_DENSITY 1000.0f // mass = density * r^3, so r 0.1 is 1 kg and r 1 is 1000 kg
 #define CLOUD_G_UNIT 0.001f  // the G slider is in these, so it shows readable numbers
@@ -34,6 +35,7 @@ typedef struct {
     Particle particle;
     V3 previous_position; // from the step before, for blending
     real radius;
+    real reach; // how far it can move this step, for the contact margin
     f32 r, g, b;
 } Body;
 
@@ -52,6 +54,11 @@ static ForceRegistry cloud_blasts = {cloud_blast_regs, 0, CLOUD_MAX};
 static real cloud_blast_left; // s
 
 static i32 cloud_stats_contacts; // per second, see cloud_stats
+static i32 cloud_stats_full;     // steps per second where the contact list ran full
+
+// this step's contacts and last step's (for the warm start), swapped every step
+static ParticleContact cloud_contact_lists[2][CLOUD_MAX_CONTACTS];
+static i32 cloud_contact_counts[2], cloud_contacts_now;
 
 static i32 cloud_overlaps_placed(V3 position, real radius, i32 placed) {
     for (i32 i = 0; i < placed; i++) {
@@ -144,6 +151,7 @@ static void cloud_spawn(void) {
         }
         cloud_blast_left = CLOUD_BLAST_TIME;
     }
+    cloud_contact_counts[0] = cloud_contact_counts[1] = 0; // new bodies, nothing to warm start from
     plat_log_i32("cloud spawned", cloud_alive);
 }
 
@@ -181,18 +189,35 @@ FORCE_INLINE void cloud_step(real dt) {
     for (i32 i = 0; i < cloud_alive; i++) {
         Body *body = &cloud_bodies[i];
         body->previous_position = body->particle.position;
-        particle_integrate(&body->particle, dt);
+        particle_integrate_velocity(&body->particle, dt);
+        body->reach = v3_magnitude(body->particle.velocity) * dt;
     }
-    for (i32 pass = 0; pass < CLOUD_SOLVER_PASSES; pass++) {
-        for (i32 i = 0; i < cloud_alive; i++) {
-            for (i32 j = i + 1; j < cloud_alive; j++) {
-                Body *a = &cloud_bodies[i];
-                Body *b = &cloud_bodies[j];
-                i32 hit = particle_collide_spheres(&a->particle, a->radius, &b->particle, b->radius, cloud_bounce);
-                if (pass == 0) cloud_stats_contacts += hit;
+
+    // every pair that could touch this step. found in (i, j) order, so the list is sorted for the warm start
+    i32 before = cloud_contacts_now;
+    cloud_contacts_now ^= 1;
+    ParticleContact *list = cloud_contact_lists[cloud_contacts_now];
+    i32 count = 0;
+    for (i32 i = 0; i < cloud_alive && count < CLOUD_MAX_CONTACTS; i++) {
+        for (i32 j = i + 1; j < cloud_alive && count < CLOUD_MAX_CONTACTS; j++) {
+            Body *a = &cloud_bodies[i];
+            Body *b = &cloud_bodies[j];
+            if (particle_contact_find_spheres(&list[count], &a->particle, a->radius, &b->particle, b->radius,
+                                              cloud_bounce, dt, a->reach + b->reach)) {
+                list[count].id_a = i;
+                list[count].id_b = j;
+                count++;
             }
         }
     }
+    if (count == CLOUD_MAX_CONTACTS) cloud_stats_full++;
+    cloud_contact_counts[cloud_contacts_now] = count;
+    cloud_stats_contacts += count;
+
+    particle_contacts_warm(list, count, cloud_contact_lists[before], cloud_contact_counts[before]);
+    particle_contacts_solve(list, count, CLOUD_SOLVER_PASSES);
+    for (i32 i = 0; i < cloud_alive; i++) particle_integrate_position(&cloud_bodies[i].particle, dt);
+    particle_contacts_bounce(list, count, CLOUD_SOLVER_PASSES);
 }
 
 FORCE_INLINE void cloud_draw(f32 alpha, f32 seconds, f32 hud_top) {
@@ -230,5 +255,7 @@ FORCE_INLINE void cloud_draw(f32 alpha, f32 seconds, f32 hud_top) {
 static void cloud_stats(char *line, i32 cap) {
     demo_append_stat(line, cap, "contacts/s", cloud_stats_contacts);
     demo_append_stat(line, cap, "bodies", cloud_alive);
+    demo_append_stat(line, cap, "contacts full", cloud_stats_full);
     cloud_stats_contacts = 0;
+    cloud_stats_full = 0;
 }

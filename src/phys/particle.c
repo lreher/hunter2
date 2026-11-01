@@ -4,15 +4,22 @@
 // Semi-implicit Euler: velocity first, then position with the new velocity.
 // The book (ch 3, book page 51) moves position with the old velocity. Under gravity that adds a little
 // energy every step, and small bounces never die out. This order loses a little instead, so things settle.
-void particle_integrate(Particle *p, real dt) {
+// Two halves, so contacts can fix the velocities in between (see Contacts in phys.h).
+void particle_integrate_velocity(Particle *p, real dt) {
     V3 acceleration = p->acceleration;
     v3_add_scaled(&acceleration, p->force_accum, p->inverse_mass);
     v3_add_scaled(&p->velocity, acceleration, dt);
-
-    v3_add_scaled(&p->position, p->velocity, dt);
-
     v3_multiply(&p->velocity, p->damping);
     particle_clear_force_accum(p);
+}
+
+void particle_integrate_position(Particle *p, real dt) {
+    v3_add_scaled(&p->position, p->velocity, dt);
+}
+
+void particle_integrate(Particle *p, real dt) {
+    particle_integrate_velocity(p, dt);
+    particle_integrate_position(p, dt);
 }
 
 void particle_set_mass(Particle *p, real mass) {
@@ -42,29 +49,4 @@ void particle_clear_force_accum(Particle *p) {
 
 real particle_bounce_factor(real impact_speed, real restitution) {
     return impact_speed < PHYS_REST_SPEED ? 0 : restitution;
-}
-
-// one axis of the box. side_a and side_b are the velocity on the other two axes, they keep `keep` of it on impact
-static void particle_collide_box_axis(real *position, real *velocity, real *side_a, real *side_b,
-                                      real lo, real hi, real restitution, real keep) {
-    if (*position < lo) {
-        *position = lo;
-        *velocity = -*velocity * particle_bounce_factor(-*velocity, restitution);
-    } else if (*position > hi) {
-        *position = hi;
-        *velocity = -*velocity * particle_bounce_factor(*velocity, restitution);
-    } else {
-        return;
-    }
-    *side_a *= keep;
-    *side_b *= keep;
-}
-
-void particle_collide_box(Particle *p, real radius, V3 box_min, V3 box_max, real restitution, real friction) {
-    real keep = 1 - friction;
-    V3 *pos = &p->position;
-    V3 *vel = &p->velocity;
-    particle_collide_box_axis(&pos->x, &vel->x, &vel->y, &vel->z, box_min.x + radius, box_max.x - radius, restitution, keep);
-    particle_collide_box_axis(&pos->y, &vel->y, &vel->x, &vel->z, box_min.y + radius, box_max.y - radius, restitution, keep);
-    particle_collide_box_axis(&pos->z, &vel->z, &vel->x, &vel->y, box_min.z + radius, box_max.z - radius, restitution, keep);
 }

@@ -63,22 +63,6 @@ static void test_free_fall(void) {
     NEAR(p.position.y, 10 - 10.0f * 1830.0f / 3600.0f); // sum of k*dt*g*dt, k = 1..60 (velocity is updated first)
 }
 
-// the book's integrator gained energy each step, so a 10 cm hop with restitution 0.85 went on forever
-static void test_small_bounce_settles(void) {
-    Particle p = {0};
-    p.position = v3_create(0, 0.6f, 0);
-    p.acceleration = v3_create(0, -9.8f, 0);
-    p.damping = 1;
-    particle_set_mass(&p, 1);
-    V3 lo = v3_create(-10, 0, -10), hi = v3_create(10, 10, 10);
-    for (i32 i = 0; i < 60 * 10; i++) {
-        particle_integrate(&p, 1.0f / 60.0f);
-        particle_collide_box(&p, 0.5f, lo, hi, 0.85f, 0);
-    }
-    NEAR(p.position.y, 0.5f);
-    NEAR(p.velocity.y, 0);
-}
-
 static void test_forces(void) {
     Particle p = {0};
     p.damping = 1;
@@ -236,46 +220,6 @@ static void test_damping(void) {
     NEAR(p.velocity.x, 5);
 }
 
-static void test_box(void) {
-    V3 lo = v3_create(0, 0, -1), hi = v3_create(16, 9, 1);
-
-    Particle p = {0};
-    p.position = v3_create(5, 0.1f, 0);     // below the floor for radius 0.5
-    p.velocity = v3_create(2, -4, 0);
-    particle_collide_box(&p, 0.5f, lo, hi, 0.5f, 0.1f);
-    NEAR(p.position.y, 0.5f);
-    NEAR(p.velocity.y, 2);               // bounced, half speed
-    NEAR(p.velocity.x, 1.8f);            // lost 10% sideways
-
-    Particle q = {0};
-    q.position = v3_create(15.9f, 4, 0);
-    q.velocity = v3_create(6, 0, 0);
-    particle_collide_box(&q, 0.5f, lo, hi, 1, 0);
-    NEAR(q.position.x, 15.5f);
-    NEAR(q.velocity.x, -6);
-
-    Particle slow = {0};                 // resting on the floor: gravity speed only, no bounce
-    slow.position = v3_create(5, 0.4f, 0);
-    slow.velocity = v3_create(0, -0.2f, 0);
-    particle_collide_box(&slow, 0.5f, lo, hi, 0.9f, 0);
-    NEAR(slow.velocity.y, 0);
-
-    Particle r = {0};
-    r.position = v3_create(8, 4, 0);
-    r.velocity = v3_create(1, 1, 0);
-    particle_collide_box(&r, 0.5f, lo, hi, 0.5f, 0.1f);
-    NEAR(r.velocity.x, 1);               // inside the box, untouched
-
-    Particle back = {0};                 // through the back wall (z), loses speed on both other axes
-    back.position = v3_create(8, 4, -0.8f);
-    back.velocity = v3_create(1, 2, -4);
-    particle_collide_box(&back, 0.5f, lo, hi, 0.5f, 0.1f);
-    NEAR(back.position.z, -0.5f);
-    NEAR(back.velocity.z, 2);
-    NEAR(back.velocity.x, 0.9f);
-    NEAR(back.velocity.y, 1.8f);
-}
-
 static Particle make_ball(real x, real y, real vx, real vy, real mass) {
     Particle p = {0};
     p.position = v3_create(x, y, 0);
@@ -285,76 +229,278 @@ static Particle make_ball(real x, real y, real vx, real vy, real mass) {
     return p;
 }
 
-static void test_spheres(void) {
-    // head on, equal mass, elastic: they swap velocities
-    Particle a = make_ball(0, 0, 4, 0, 1), b = make_ball(0.9f, 0, -4, 0, 1);
-    CHECK(particle_collide_spheres(&a, 0.5f, &b, 0.5f, 1) == 1);
-    NEAR(a.velocity.x, -4);
-    NEAR(b.velocity.x, 4);
-    NEAR(b.position.x - a.position.x, 1);        // pushed apart until just touching
+// one step in the contact order (phys.h, Contacts), like a demo runs it: spheres of radius 0.5, the floor y = 0 if floor
+#define TEST_DT (1.0f / 60.0f)
+static ParticleContact test_contact_lists[2][64];
+static i32 test_contact_counts[2], test_contacts_now;
 
-    // no overlap: untouched
-    Particle c = make_ball(0, 0, 1, 0, 1), d = make_ball(2, 0, -1, 0, 1);
-    CHECK(particle_collide_spheres(&c, 0.5f, &d, 0.5f, 1) == 0);
-    NEAR(c.velocity.x, 1);
-
-    // overlapping but already moving apart: pushed out, velocity kept
-    Particle e = make_ball(0, 0, -3, 0, 1), f = make_ball(0.8f, 0, 3, 0, 1);
-    CHECK(particle_collide_spheres(&e, 0.5f, &f, 0.5f, 1) == 1);
-    NEAR(e.velocity.x, -3);
-    NEAR(f.position.x - e.position.x, 1);
-
-    // different masses: momentum and energy are conserved when elastic
-    Particle g = make_ball(0, 0, 5, 1, 3), h = make_ball(0.9f, 0.2f, -2, 0, 1);
-    f32 px = 3 * g.velocity.x + 1 * h.velocity.x, py = 3 * g.velocity.y + 1 * h.velocity.y;
-    f32 energy = 0.5f * 3 * v3_square_magnitude(g.velocity) + 0.5f * 1 * v3_square_magnitude(h.velocity);
-    CHECK(particle_collide_spheres(&g, 0.5f, &h, 0.5f, 1) == 1);
-    NEAR(3 * g.velocity.x + 1 * h.velocity.x, px);
-    NEAR(3 * g.velocity.y + 1 * h.velocity.y, py);
-    NEAR(0.5f * 3 * v3_square_magnitude(g.velocity) + 0.5f * 1 * v3_square_magnitude(h.velocity), energy);
-
-    // inelastic: both leave with the same velocity along the normal
-    Particle i = make_ball(0, 0, 4, 0, 1), j = make_ball(0.9f, 0, 0, 0, 1);
-    particle_collide_spheres(&i, 0.5f, &j, 0.5f, 0);
-    NEAR(i.velocity.x, 2);
-    NEAR(j.velocity.x, 2);
-
-    // infinite mass (a wall): it stays, the ball bounces off
-    Particle wall = make_ball(0, 0, 0, 0, 0), ball = make_ball(0.9f, 0, -4, 0, 1);
-    particle_collide_spheres(&wall, 0.5f, &ball, 0.5f, 1);
-    NEAR(wall.position.x, 0);
-    NEAR(wall.velocity.x, 0);
-    NEAR(ball.velocity.x, 4);
-    NEAR(ball.position.x, 1);
-
-    // two walls: nothing to do
-    Particle w1 = make_ball(0, 0, 0, 0, 0), w2 = make_ball(0.5f, 0, 0, 0, 0);
-    CHECK(particle_collide_spheres(&w1, 0.5f, &w2, 0.5f, 1) == 0);
-
-    // slow impact does not bounce
-    Particle k = make_ball(0, 0, 0.2f, 0, 1), l = make_ball(0.9f, 0, 0, 0, 1);
-    particle_collide_spheres(&k, 0.5f, &l, 0.5f, 1);
-    NEAR(k.velocity.x, 0.1f);
-    NEAR(l.velocity.x, 0.1f);
-
-    // same position: must not produce NaN
-    Particle m = make_ball(1, 1, 0, 0, 1), n = make_ball(1, 1, 0, 0, 1);
-    CHECK(particle_collide_spheres(&m, 0.5f, &n, 0.5f, 1) == 1);
-    CHECK(m.position.x == m.position.x && n.position.x == n.position.x);
-    NEAR(v3_magnitude(v3_subtracted(n.position, m.position)), 1);
+static void test_contacts_reset(void) {
+    test_contact_counts[0] = test_contact_counts[1] = 0;
 }
 
-static void test_spheres_3d(void) {
-    // diagonal hit in 3D, equal mass, elastic: they swap velocities along the line between them
-    real s = 0.9f / real_sqrt(3);        // 0.9 apart along (1, 1, 1)
-    Particle a = make_ball(0, 0, 0, 0, 1), b = make_ball(s, s, 0, 0, 1);
-    a.velocity = v3_create(2, 2, 2);
-    b.position.z = s;
-    CHECK(particle_collide_spheres(&a, 0.5f, &b, 0.5f, 1) == 1);
-    NEAR(a.velocity.z, 0);
-    NEAR(b.velocity.x, 2);
-    NEAR(b.velocity.z, 2);
-    NEAR(v3_magnitude(v3_subtracted(b.position, a.position)), 1);
+static void test_step(Particle *ps, i32 n, ForceRegistry *forces, i32 floor, real restitution) {
+    if (forces) force_registry_update(forces, TEST_DT);
+    real speeds[8];
+    for (i32 i = 0; i < n; i++) {
+        particle_integrate_velocity(&ps[i], TEST_DT);
+        speeds[i] = v3_magnitude(ps[i].velocity);
+    }
+    i32 before = test_contacts_now;
+    test_contacts_now ^= 1;
+    ParticleContact *list = test_contact_lists[test_contacts_now];
+    i32 count = 0;
+    for (i32 i = 0; i < n; i++) {
+        for (i32 j = i + 1; j < n; j++) {
+            if (particle_contact_find_spheres(&list[count], &ps[i], 0.5f, &ps[j], 0.5f, restitution, TEST_DT,
+                                              (speeds[i] + speeds[j]) * TEST_DT)) {
+                list[count].id_a = i;
+                list[count].id_b = j;
+                count++;
+            }
+        }
+        if (floor && particle_contact_find_plane(&list[count], &ps[i], 0.5f, v3_create(0, 1, 0), 0, restitution, 0,
+                                                 TEST_DT, speeds[i] * TEST_DT)) {
+            list[count].id_a = i;
+            list[count].id_b = n; // after the pairs of i, so the list stays sorted
+            count++;
+        }
+    }
+    particle_contacts_warm(list, count, test_contact_lists[before], test_contact_counts[before]);
+    test_contact_counts[test_contacts_now] = count;
+    particle_contacts_solve(list, count, 4);
+    for (i32 i = 0; i < n; i++) particle_integrate_position(&ps[i], TEST_DT);
+    particle_contacts_bounce(list, count, 4);
+}
+
+// find, solve, move, bounce for one pair, by hand
+static void test_pair_step(Particle *a, Particle *b, real restitution, real margin) {
+    ParticleContact c;
+    if (!particle_contact_find_spheres(&c, a, 0.5f, b, 0.5f, restitution, TEST_DT, margin)) return;
+    particle_contacts_solve(&c, 1, 1);
+    particle_integrate_position(a, TEST_DT);
+    particle_integrate_position(b, TEST_DT);
+    particle_contacts_bounce(&c, 1, 1);
+}
+
+static void test_contact_spheres(void) {
+    ParticleContact c;
+
+    // head on, 5 cm apart, elastic. the solver lets them close exactly the gap, then they bounce: velocities swap
+    Particle a = make_ball(0, 0, 4, 0, 1), b = make_ball(1.05f, 0, -4, 0, 1);
+    CHECK(particle_contact_find_spheres(&c, &a, 0.5f, &b, 0.5f, 1, TEST_DT, 8 * TEST_DT) == 1);
+    NEAR(c.target, -3);                  // may close 0.05 m in 1/60 s
+    NEAR(c.bounce, 8);
+    particle_contacts_solve(&c, 1, 1);
+    NEAR(a.velocity.x, 1.5f);
+    NEAR(b.velocity.x, -1.5f);
+    particle_integrate_position(&a, TEST_DT);
+    particle_integrate_position(&b, TEST_DT);
+    NEAR(b.position.x - a.position.x, 1); // just touching, not inside each other
+    particle_contacts_bounce(&c, 1, 1);
+    NEAR(a.velocity.x, -4);
+    NEAR(b.velocity.x, 4);
+
+    // further apart than the margin: no contact
+    Particle d = make_ball(0, 0, 1, 0, 1), e = make_ball(1.5f, 0, -1, 0, 1);
+    CHECK(particle_contact_find_spheres(&c, &d, 0.5f, &e, 0.5f, 1, TEST_DT, 2 * TEST_DT) == 0);
+
+    // inside the margin but too slow to meet this step: the solver leaves them alone
+    Particle f = make_ball(0, 0, 2, 0, 1), g = make_ball(1.1f, 0, -2, 0, 1);
+    CHECK(particle_contact_find_spheres(&c, &f, 0.5f, &g, 0.5f, 1, TEST_DT, 0.2f) == 1);
+    NEAR(c.bounce, 0);
+    particle_contacts_solve(&c, 1, 4);
+    NEAR(c.impulse, 0);
+    NEAR(f.velocity.x, 2);
+
+    // different masses, off center, elastic: momentum and energy conserved
+    Particle h = make_ball(0, 0, 5, 1, 3), k = make_ball(0.9f, 0.45f, -2, 0, 1);
+    h.velocity.z = 0.5f;
+    k.position.z = 0.1f;
+    V3 momentum = v3_added(v3_multiplied(h.velocity, 3), k.velocity);
+    f32 energy = 0.5f * 3 * v3_square_magnitude(h.velocity) + 0.5f * v3_square_magnitude(k.velocity);
+    test_pair_step(&h, &k, 1, 8 * TEST_DT);
+    V3 after = v3_added(v3_multiplied(h.velocity, 3), k.velocity);
+    NEAR(after.x, momentum.x);
+    NEAR(after.y, momentum.y);
+    NEAR(after.z, momentum.z);
+    NEAR(0.5f * 3 * v3_square_magnitude(h.velocity) + 0.5f * v3_square_magnitude(k.velocity), energy); // a grazing hit, fast
+    CHECK(k.velocity.x > 0);             // it was hit
+
+    // inelastic: after they meet, both move on together
+    Particle ps[2] = {make_ball(0, 0, 4, 0, 1), make_ball(1.01f, 0, 0, 0, 1)};
+    test_contacts_reset();
+    for (i32 i = 0; i < 3; i++) test_step(ps, 2, 0, 0, 0);
+    NEAR(ps[0].velocity.x, 2);
+    NEAR(ps[1].velocity.x, 2);
+
+    // slow impact (under PHYS_REST_SPEED) does not bounce, even when elastic
+    Particle slow[2] = {make_ball(0, 0, 0.2f, 0, 1), make_ball(1.001f, 0, 0, 0, 1)};
+    test_contacts_reset();
+    for (i32 i = 0; i < 3; i++) test_step(slow, 2, 0, 0, 1);
+    NEAR(slow[0].velocity.x, 0.1f);
+    NEAR(slow[1].velocity.x, 0.1f);
+
+    // infinite mass: it stays, the ball bounces off it
+    Particle wall = make_ball(0, 0, 0, 0, 0), ball = make_ball(1.02f, 0, -4, 0, 1);
+    test_pair_step(&wall, &ball, 1, 4 * TEST_DT);
+    NEAR(wall.position.x, 0);
+    NEAR(wall.velocity.x, 0);
+    NEAR(ball.position.x, 1);
+    NEAR(ball.velocity.x, 4);
+
+    // two immovable things: nothing to do
+    Particle w1 = make_ball(0, 0, 0, 0, 0), w2 = make_ball(0.5f, 0, 0, 0, 0);
+    CHECK(particle_contact_find_spheres(&c, &w1, 0.5f, &w2, 0.5f, 1, TEST_DT, 0) == 0);
+
+    // an overlap opens at PHYS_OVERLAP_FIX of its depth past the slop per step, by velocity
+    Particle l = make_ball(0, 0, 0, 0, 1), m = make_ball(0.9f, 0, 0, 0, 1);
+    CHECK(particle_contact_find_spheres(&c, &l, 0.5f, &m, 0.5f, 1, TEST_DT, 0) == 1);
+    particle_contacts_solve(&c, 1, 1);
+    NEAR(m.velocity.x - l.velocity.x, (0.1f - PHYS_OVERLAP_SLOP) * PHYS_OVERLAP_FIX / TEST_DT);
+
+    // a small overlap is left alone
+    Particle sa = make_ball(0, 0, 0, 0, 1), sb = make_ball(1 - PHYS_OVERLAP_SLOP / 2, 0, 0, 0, 1);
+    CHECK(particle_contact_find_spheres(&c, &sa, 0.5f, &sb, 0.5f, 1, TEST_DT, 0) == 1);
+    particle_contacts_solve(&c, 1, 1);
+    NEAR(sb.velocity.x - sa.velocity.x, 0);
+
+    // the fix is not carried to the next step: once the overlap is gone it would push too hard (piles shook)
+    Particle two[2] = {make_ball(0, 0, 0, 0, 1), make_ball(0.9f, 0, 0, 0, 1)};
+    test_contacts_reset();
+    test_step(two, 2, 0, 0, 0);
+    ParticleContact *last = &test_contact_lists[test_contacts_now][0];
+    NEAR(last->impulse, 0);              // nothing to carry: no steady push between two free balls
+    CHECK(last->fix_impulse > 0);
+
+    // same position: must not produce NaN
+    Particle n = make_ball(1, 1, 0, 0, 1), o = make_ball(1, 1, 0, 0, 1);
+    CHECK(particle_contact_find_spheres(&c, &n, 0.5f, &o, 0.5f, 1, TEST_DT, 0) == 1);
+    particle_contacts_solve(&c, 1, 1);
+    CHECK(n.velocity.x == n.velocity.x && o.velocity.x == o.velocity.x);
+    CHECK(o.velocity.x > n.velocity.x);
+}
+
+static void test_contact_plane(void) {
+    ParticleContact c;
+    V3 up = v3_create(0, 1, 0);
+
+    // falling onto the floor from 5 cm: lands on it, bounces at half speed, loses 10% sideways
+    Particle p = make_ball(3, 0.55f, 2, -6, 1);
+    CHECK(particle_contact_find_plane(&c, &p, 0.5f, up, 0, 0.5f, 0.1f, TEST_DT, 6 * TEST_DT) == 1);
+    NEAR(p.velocity.x, 1.8f);
+    particle_contacts_solve(&c, 1, 1);
+    particle_integrate_position(&p, TEST_DT);
+    NEAR(p.position.y, 0.5f);
+    particle_contacts_bounce(&c, 1, 1);
+    NEAR(p.velocity.y, 3);
+
+    // high above: no contact
+    Particle q = make_ball(3, 2, 0, -1, 1);
+    CHECK(particle_contact_find_plane(&c, &q, 0.5f, up, 0, 0.5f, 0, TEST_DT, TEST_DT) == 0);
+
+    // a wall at x = 16 (normal pointing back into the box)
+    Particle r = make_ball(15.45f, 4, 6, 0, 1);
+    CHECK(particle_contact_find_plane(&c, &r, 0.5f, v3_create(-1, 0, 0), -16, 1, 0, TEST_DT, 6 * TEST_DT) == 1);
+    particle_contacts_solve(&c, 1, 1);
+    particle_integrate_position(&r, TEST_DT);
+    particle_contacts_bounce(&c, 1, 1);
+    NEAR(r.position.x, 15.5f);
+    NEAR(r.velocity.x, -6);
+}
+
+// the book's integrator gained energy each step, so a 10 cm hop with restitution 0.85 went on forever
+static void test_small_bounce_settles(void) {
+    Particle p = make_ball(0, 0.6f, 0, 0, 1);
+    p.acceleration = v3_create(0, -9.8f, 0);
+    test_contacts_reset();
+    for (i32 i = 0; i < 60 * 10; i++) test_step(&p, 1, 0, 1, 0.85f);
+    NEAR(p.position.y, 0.5f);
+    NEAR(p.velocity.y, 0);
+}
+
+static void test_contacts_warm(void) {
+    Particle ps[6];
+    for (i32 i = 0; i < 6; i++) ps[i] = make_ball((real)i, 0, 0, 0, 1);
+    ParticleContact before[3] = {{.id_a = 0, .id_b = 1, .impulse = 2}, {.id_a = 0, .id_b = 3, .impulse = 5},
+                                 {.id_a = 2, .id_b = 3, .impulse = 7}};
+    ParticleContact now[4];
+    i32 ids[4][2] = {{0, 1}, {0, 2}, {2, 3}, {4, 5}};
+    for (i32 i = 0; i < 4; i++) {
+        now[i] = (ParticleContact){.a = &ps[ids[i][0]], .b = &ps[ids[i][1]], .id_a = ids[i][0], .id_b = ids[i][1],
+                                   .normal = v3_create(1, 0, 0), .total_inverse_mass = 2};
+    }
+    particle_contacts_warm(now, 4, before, 3);
+    NEAR(now[0].impulse, 2);
+    NEAR(now[1].impulse, 0);             // new pair
+    NEAR(now[2].impulse, 7);
+    NEAR(now[3].impulse, 0);
+    NEAR(ps[1].velocity.x, 2);           // warm impulses are applied
+    NEAR(ps[2].velocity.x, -7);
+    NEAR(ps[3].velocity.x, 7);
+}
+
+// the bug that started the contacts: a turning cluster held by its own gravity. contacts must not change its
+// angular momentum (the old push on positions made it spin faster and faster)
+static V3 test_angular_momentum(Particle *ps, i32 n) {
+    V3 center = v3_zero(), momentum = v3_zero();
+    real mass = 0;
+    for (i32 i = 0; i < n; i++) {
+        real m = particle_get_mass(&ps[i]);
+        v3_add_scaled(&center, ps[i].position, m);
+        v3_add_scaled(&momentum, ps[i].velocity, m);
+        mass += m;
+    }
+    v3_multiply(&center, 1 / mass);
+    v3_multiply(&momentum, 1 / mass);
+    V3 l = v3_zero();
+    for (i32 i = 0; i < n; i++) {
+        V3 r = v3_subtracted(ps[i].position, center), v = v3_subtracted(ps[i].velocity, momentum);
+        v3_add_scaled(&l, v3_vector_product(r, v), particle_get_mass(&ps[i]));
+    }
+    return l;
+}
+
+static void test_contacts_spin(void) {
+    // four touching balls (a tetrahedron, edge 1) turning around y, pulling on each other
+    Particle ps[4];
+    real h = 0.5f * real_sqrt(2.0f) / 2;  // corners (+-h, +-h, +-h) with an even number of minus signs: edge 1
+    V3 corners[4] = {v3_create(h, h, h), v3_create(h, -h, -h), v3_create(-h, h, -h), v3_create(-h, -h, h)};
+    for (i32 i = 0; i < 4; i++) {
+        ps[i] = make_ball(0, 0, 0, 0, 1 + i); // different masses
+        ps[i].position = corners[i];
+        ps[i].velocity = v3_create(0.5f * corners[i].z, 0, -0.5f * corners[i].x);
+    }
+    ForceGen pulls[4];
+    ForceReg regs[12];
+    ForceRegistry forces = {regs, 0, 12};
+    for (i32 j = 0; j < 4; j++) pulls[j] = force_attract(&ps[j], 1);
+    for (i32 i = 0; i < 4; i++) for (i32 j = 0; j < 4; j++) if (i != j) force_registry_add(&forces, &ps[i], &pulls[j]);
+
+    V3 start = test_angular_momentum(ps, 4);
+    test_contacts_reset();
+    real worst = 0;
+    for (i32 step = 0; step < 60 * 20; step++) {
+        test_step(ps, 4, &forces, 0, 0.3f);
+        for (i32 i = 0; i < 4; i++) for (i32 j = i + 1; j < 4; j++) {
+            real overlap = 1 - v3_magnitude(v3_subtracted(ps[j].position, ps[i].position));
+            if (overlap > worst) worst = overlap;
+        }
+    }
+    V3 end = test_angular_momentum(ps, 4);
+    CHECK(near(end.x, start.x, 0.0005f) && near(end.y, start.y, 0.0005f) && near(end.z, start.z, 0.0005f));
+    CHECK(worst < 0.002f);               // they stay touching, not sinking in
+}
+
+// a column of three on the floor stands still
+static void test_contacts_pile(void) {
+    Particle ps[3] = {make_ball(0, 0.5f, 0, 0, 1), make_ball(0, 1.5f, 0, 0, 2), make_ball(0, 2.5f, 0, 0, 3)};
+    for (i32 i = 0; i < 3; i++) ps[i].acceleration = v3_create(0, -9.8f, 0);
+    test_contacts_reset();
+    for (i32 step = 0; step < 60 * 10; step++) test_step(ps, 3, 0, 1, 0.5f);
+    for (i32 i = 0; i < 3; i++) {
+        CHECK(near(ps[i].position.y, 0.5f + i, (i + 1) * PHYS_OVERLAP_SLOP)); // each contact below may keep the slop
+        CHECK(near(ps[i].velocity.y, 0, 0.01f));
+    }
 }
 
 static void test_rand_unit(void) {
@@ -463,9 +609,11 @@ __attribute__((export_name("run_tests"))) i32 run_tests(void) {
     test_force_registry();
     test_mass();
     test_damping();
-    test_box();
-    test_spheres();
-    test_spheres_3d();
+    test_contact_spheres();
+    test_contact_plane();
+    test_contacts_warm();
+    test_contacts_spin();
+    test_contacts_pile();
     test_rand_unit();
     test_rand();
     test_trig();

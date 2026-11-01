@@ -12,7 +12,9 @@
 #define BALLS_BOX_D 9.0f
 
 #define BALLS_MAX 2000 // all pairs: past this the step gets too slow (27 ms at 2000). raise after a broadphase (ch 12)
-#define BALLS_SOLVER_PASSES 4 // collisions fix each other up, a few passes keeps piles from sinking into each other
+#define BALLS_SOLVER_PASSES 4 // contacts fix each other up, a few passes (warm started) keep piles from sinking
+#define BALLS_MAX_CONTACTS (BALLS_MAX * 8) // a ball touches a few others and walls, plus the ones it could reach this step
+#define BALLS_WALL_FRICTION 0.02f // share of the sideways speed lost each step a ball touches a wall
 
 // tuned live from the debug panel (web/ui.js writes into these). count and sizes respawn the balls
 static f32 balls_count = 80;
@@ -27,6 +29,7 @@ typedef struct {
     Particle particle;
     V3 previous_position; // from the step before, for blending
     real radius;
+    real reach; // how far it can move this step, for the contact margin
     f32 r, g, b;
     f32 overlap_glow; // debug: seconds left to show this ball white after a drawn overlap
 } Ball;
@@ -43,8 +46,17 @@ static const f32 balls_palette[6][3] = {
 #define BALLS_OVERLAP_GLOW 0.5f   // s
 static i32 balls_show_overlaps;
 
+// the box as 6 planes, normals pointing inside (particle_contact_find_plane): floor, ceiling, left, right, back, front
+static const V3 balls_wall_normals[6] = {{0, 1, 0}, {0, -1, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}};
+static const real balls_wall_offsets[6] = {0, -BALLS_BOX_H, 0, -BALLS_BOX_W, -BALLS_BOX_D / 2, -BALLS_BOX_D / 2};
+
+// this step's contacts and last step's (for the warm start), swapped every step
+static ParticleContact balls_contact_lists[2][BALLS_MAX_CONTACTS];
+static i32 balls_contact_counts[2], balls_contacts_now;
+
 // counted per second, see balls_stats
 static i32 balls_stats_contacts;
+static i32 balls_stats_full; // steps where the contact list ran full
 static i32 balls_stats_overlap_frames; // drawn frames where some pair overlaps more than BALLS_OVERLAP_LIMIT
 static i32 balls_hud_overlap_frames;   // last second's, for the HUD
 
@@ -88,6 +100,7 @@ static void balls_spawn(void) {
         ball->g = color[1];
         ball->b = color[2];
     }
+    balls_contact_counts[0] = balls_contact_counts[1] = 0; // new balls, nothing to warm start from
     plat_log_i32("balls spawned", balls_alive);
 }
 
@@ -117,26 +130,44 @@ FORCE_INLINE void balls_step(real dt) {
     for (i32 i = 0; i < balls_alive; i++) {
         Ball *ball = &balls_list[i];
         ball->previous_position = ball->particle.position;
-        particle_integrate(&ball->particle, dt);
+        particle_integrate_velocity(&ball->particle, dt);
+        ball->reach = v3_magnitude(ball->particle.velocity) * dt;
     }
 
-    V3 box_min = v3_create(0, 0, -BALLS_BOX_D / 2);
-    V3 box_max = v3_create(BALLS_BOX_W, BALLS_BOX_H, BALLS_BOX_D / 2);
-    for (i32 pass = 0; pass < BALLS_SOLVER_PASSES; pass++) {
-        for (i32 i = 0; i < balls_alive; i++) {
-            for (i32 j = i + 1; j < balls_alive; j++) {
-                Ball *a = &balls_list[i];
-                Ball *b = &balls_list[j];
-                i32 hit = particle_collide_spheres(&a->particle, a->radius, &b->particle, b->radius, balls_ball_bounce);
-                if (pass == 0) balls_stats_contacts += hit;
+    // every pair and wall a ball could touch this step. ids (i, j) for pairs, then (i, BALLS_MAX + wall),
+    // so the list comes out sorted for the warm start
+    i32 before = balls_contacts_now;
+    balls_contacts_now ^= 1;
+    ParticleContact *list = balls_contact_lists[balls_contacts_now];
+    i32 count = 0;
+    for (i32 i = 0; i < balls_alive && count < BALLS_MAX_CONTACTS - 6; i++) {
+        Ball *a = &balls_list[i];
+        for (i32 j = i + 1; j < balls_alive && count < BALLS_MAX_CONTACTS - 6; j++) {
+            Ball *b = &balls_list[j];
+            if (particle_contact_find_spheres(&list[count], &a->particle, a->radius, &b->particle, b->radius,
+                                              balls_ball_bounce, dt, a->reach + b->reach)) {
+                list[count].id_a = i;
+                list[count].id_b = j;
+                count++;
             }
         }
-        // walls last, so nothing is left outside the box
-        for (i32 i = 0; i < balls_alive; i++) {
-            Ball *ball = &balls_list[i];
-            particle_collide_box(&ball->particle, ball->radius, box_min, box_max, balls_wall_bounce, 0.02f);
+        for (i32 wall = 0; wall < 6; wall++) {
+            if (particle_contact_find_plane(&list[count], &a->particle, a->radius, balls_wall_normals[wall],
+                                            balls_wall_offsets[wall], balls_wall_bounce, BALLS_WALL_FRICTION, dt, a->reach)) {
+                list[count].id_a = i;
+                list[count].id_b = BALLS_MAX + wall;
+                count++;
+            }
         }
     }
+    if (count >= BALLS_MAX_CONTACTS - 6) balls_stats_full++;
+    balls_contact_counts[balls_contacts_now] = count;
+    balls_stats_contacts += count;
+
+    particle_contacts_warm(list, count, balls_contact_lists[before], balls_contact_counts[before]);
+    particle_contacts_solve(list, count, BALLS_SOLVER_PASSES);
+    for (i32 i = 0; i < balls_alive; i++) particle_integrate_position(&balls_list[i].particle, dt);
+    particle_contacts_bounce(list, count, BALLS_SOLVER_PASSES);
 }
 
 // the 12 edges of the box
@@ -206,7 +237,9 @@ static void balls_stats(char *line, i32 cap) {
     demo_append_stat(line, cap, "contacts/s", balls_stats_contacts);
     demo_append_stat(line, cap, "overlap frames", balls_stats_overlap_frames);
     demo_append_stat(line, cap, "balls", balls_alive);
+    demo_append_stat(line, cap, "contacts full", balls_stats_full);
     balls_hud_overlap_frames = balls_stats_overlap_frames;
     balls_stats_contacts = 0;
+    balls_stats_full = 0;
     balls_stats_overlap_frames = 0;
 }
