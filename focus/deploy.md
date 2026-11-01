@@ -17,9 +17,12 @@ Put hunter2 online at hunter2.lucasreher.com.
 - Repo is public (user).
 
 ## Open
-- First real deploy, then check headers with curl -I: game.wasm as application/wasm, cache headers sane. Add web/_headers only if needed.
+- Windows: not checked in Chrome there yet.
+- Windows: needs npm install and npx wrangler login before its first deploy.
 - Windows: deploy.sh is sh, run it from the same shell that runs ./build.sh there.
 
 ## Log
 - 2026-10-31: focus created. Looked at playlister's deploy (droplet + Cloudflare Tunnel + ssh deploy script), chose Pages instead. Added wrangler, deploy.sh, npm run deploy, gitignore for node_modules/ and .wrangler/.
 - 2026-10-31: first deploy went wrong. wrangler 4.156 folds Pages into Workers: `wrangler pages project create` ran Workers autoconfig, which wrote wrangler.jsonc (assets: web), replaced the npm deploy script with `wrangler deploy`, loosened the pin to ^, added .gitignore lines, and deployed a Worker with ALL of web/. `npm run deploy` then ran the rewritten script, so deploy.sh never ran. web/photo.png was public at hunter2.lucasreher.workers.dev for ~2 min, then the Worker was deleted (photo 404 confirmed). Local edits reverted. Lesson: never point any wrangler config at web/; check each wrangler command's output before the next.
+- 2026-10-31: Worker setup committed (02c092f) and deployed. Live at https://hunter2.lucasreher.com: 7 files, game.wasm application/wasm, photo.png and package.json 404, workers.dev 404. Cache: public, max-age=0, must-revalidate plus ETag, so browsers revalidate every load and no _headers file is needed.
+- 2026-10-31: user checked the live site in Chrome on the Mac: working. Handover written to handover/deploy.md.
