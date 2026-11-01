@@ -4,13 +4,13 @@
 // the demo files are included before this one (unity build), so their statics are visible here
 Demo demo_list[DEMO_COUNT] = {
     // in front of the box, a bit above, looking at its center
-    [DEMO_BALLS] = {"balls", "Erasmos Balls", "3", {BALLS_BOX_W / 2, 7.0f, 16.0f}, 0, -0.15f},
-    // in front of the cloud, a bit above, looking at the origin
-    [DEMO_CLOUD] = {"cloud", "Gravity Cloud", "5", {0, 4.0f, 22.0f}, 0, -0.18f},
-    // in front of the bridge, a bit above the deck, looking at its middle
-    [DEMO_BRIDGE] = {"bridge", "Rope Bridge", "6", {0, 5.5f, 13.0f}, 0, -0.12f},
-    // like the balls box
-    [DEMO_POOL] = {"pool", "Ball Pool", "6", {POOL_BOX_W / 2, 7.0f, 16.0f}, 0, -0.15f},
+    [DEMO_BALLS] = {"balls", "Erasmos Balls", "3", 0x44ff44, {BALLS_BOX_W / 2, 7.0f, 16.0f}, 0, -0.15f},
+    // in front of the cloud, a bit above, looking at the origin. title: the orange of the big bodies
+    [DEMO_CLOUD] = {"cloud", "Gravity Cloud", "5", 0xffa040, {0, 4.0f, 22.0f}, 0, -0.18f},
+    // in front of the bridge, a bit above the deck, looking at its middle. title: the wood of the deck
+    [DEMO_BRIDGE] = {"bridge", "Rope Bridge", "6", 0xd9a066, {0, 5.5f, 13.0f}, 0, -0.12f},
+    // like the balls box. title: the waterline blue
+    [DEMO_POOL] = {"pool", "Ball Pool", "6", 0x66b8ff, {POOL_BOX_W / 2, 7.0f, 16.0f}, 0, -0.15f},
 };
 
 void demo_init(i32 demo) {

@@ -50,7 +50,7 @@ static void game_start_demo(i32 demo) {
     game_camera.position = demo_list[demo].camera_position;
     game_camera.yaw = demo_list[demo].camera_yaw;
     game_camera.pitch = demo_list[demo].camera_pitch;
-    plat_ui_title(demo_list[demo].name);
+    plat_ui_title(demo_list[demo].name, demo_list[demo].title_color);
     plat_ui_demo_current(demo);
     demo_init(demo);
 }

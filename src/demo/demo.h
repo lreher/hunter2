@@ -9,6 +9,7 @@ typedef struct {
     const char *id;      // for ?scene= in the URL
     const char *name;
     const char *chapter; // book chapter, shown in the demo bar
+    u32 title_color;     // 0xRRGGBB, picked to match the demo
     V3 camera_position;  // start view
     f32 camera_yaw;      // 0 looks down -z, positive turns right
     f32 camera_pitch;    // 0 is level, positive looks up

@@ -58,8 +58,8 @@ void plat_ui_demo_current(i32 index) {
     js_ui_demo_current(index);
 }
 
-void plat_ui_title(const char *s) {
-    js_ui_title(s, str_len(s));
+void plat_ui_title(const char *s, u32 color) {
+    js_ui_title(s, str_len(s), color);
 }
 
 i32 plat_ui_title_bottom(void) {

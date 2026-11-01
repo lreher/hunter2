@@ -64,14 +64,15 @@ export function createUi(ctx) {
                 history.replaceState(null, "", url); // reload keeps the demo, no new history entry per switch
             },
             // big text in the top left corner, in the Tiny5 pixel font (Google Fonts, see index.html)
-            js_ui_title(ptr, len) {
+            js_ui_title(ptr, len, color) {
                 if (!title) {
                     title = document.createElement("div");
                     title.style.cssText = "position:fixed;top:12px;left:16px;font:46px/54px 'Tiny5',monospace;" +
-                        "color:#4f4;pointer-events:none;user-select:none";
+                        "pointer-events:none;user-select:none";
                     document.body.appendChild(title);
                 }
                 title.textContent = decoder.decode(new Uint8Array(ctx.memory.buffer, ptr, len));
+                title.style.color = "#" + (color >>> 0).toString(16).padStart(6, "0");
             },
             // bottom edge of the title in canvas pixels, so C can draw below it. 0 without a title
             js_ui_title_bottom() {

@@ -22,7 +22,7 @@ IMPORT("js_mouse_dx") f64 js_mouse_dx(void);
 IMPORT("js_mouse_dy") f64 js_mouse_dy(void);
 
 // web/ui.js
-IMPORT("js_ui_title") void js_ui_title(const char *s, i32 len);
+IMPORT("js_ui_title") void js_ui_title(const char *s, i32 len, u32 color);
 IMPORT("js_ui_title_bottom") i32 js_ui_title_bottom(void);
 IMPORT("js_ui_image") void js_ui_image(const char *name, i32 len, GpuHandle texture);
 IMPORT("js_ui_slider") void js_ui_slider(const char *name, i32 len, f32 min, f32 max, f32 step, i32 log, f32 *value);
@@ -64,7 +64,7 @@ void plat_ui_slider_log(const char *name, f32 min, f32 max, f32 step, f32 *value
 void plat_ui_choice(const char *name, const char *options, i32 *value); // options split by |, "A|B|C". a click writes the index into *value
 void plat_ui_image(const char *name, GpuHandle texture); // file picker, the image goes into the texture (needs COPY_DST + RENDER_ATTACHMENT)
 void plat_ui_clear(void);            // removes every slider and picker, e.g. before another demo adds its own
-void plat_ui_title(const char *s);   // big green title in the top left corner
+void plat_ui_title(const char *s, u32 color); // big title in the top left corner. color 0xRRGGBB
 i32 plat_ui_title_bottom(void);      // where the title ends, in screen pixels from the top. draw below it
 
 // demo bar along the bottom, one tab per demo
