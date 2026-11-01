@@ -2,6 +2,10 @@
   "name": "hunter2",
   "private": true,
   "scripts": {
-    "start": "./build.sh && node serve.js"
+    "start": "./build.sh && node serve.js",
+    "deploy": "./deploy.sh"
+  },
+  "devDependencies": {
+    "wrangler": "4.156.0"
   }
 }
