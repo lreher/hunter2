@@ -1,7 +1,7 @@
 #!/bin/sh
-# Builds and uploads web/ to Cloudflare Pages (project hunter2, hunter2.lucasreher.com).
+# Builds and uploads the site to Cloudflare (Worker hunter2, static files only, hunter2.lucasreher.com).
 # Only deploys a clean main that matches origin/main, so the live site is always a commit on GitHub.
-# Log in once per machine first: npx wrangler login
+# Log in once per machine first: npx wrangler login. Extra args go to wrangler, e.g. ./deploy.sh --dry-run
 set -e
 cd "$(dirname "$0")"
 
@@ -14,12 +14,12 @@ git fetch -q origin main
 
 ./build.sh
 
-# upload only what git tracks in web/ plus the built wasm (keeps web/photo.png out)
-out=$(mktemp -d)
-trap 'rm -rf "$out"' EXIT
-git archive HEAD web | tar -x -C "$out"
-cp web/game.wasm "$out/web/"
-rm "$out/web/package.json" # only for node, not part of the site
+# dist/ (wrangler.jsonc assets) gets only what git tracks in web/ plus the built wasm, so web/photo.png stays out
+rm -rf dist
+mkdir dist
+trap 'rm -rf dist' EXIT
+git archive HEAD:web | tar -x -C dist
+cp web/game.wasm dist/
+rm dist/package.json # only for node, not part of the site
 
-npx wrangler pages deploy "$out/web" --project-name hunter2 --branch main \
-  --commit-hash "$(git rev-parse HEAD)" --commit-message "$(git log -1 --format=%s)" --commit-dirty=false
+npx wrangler deploy --message "$(git log -1 --format='%h %s')" "$@"

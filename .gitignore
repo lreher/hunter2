@@ -20,3 +20,4 @@ web/photo.jpg
 # npm (wrangler, for ./deploy.sh) and its local cache
 node_modules/
 .wrangler/
+dist/

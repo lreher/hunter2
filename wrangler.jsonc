@@ -1,0 +1,10 @@
+// Cloudflare Worker that only serves static files. Deploy with npm run deploy (./deploy.sh), not wrangler directly.
+// assets.directory is dist/, which deploy.sh fills from git. Never point it at web/: web/photo.png must not be uploaded.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hunter2",
+  "compatibility_date": "2026-10-23",
+  "assets": { "directory": "dist" },
+  "routes": [{ "pattern": "hunter2.lucasreher.com", "custom_domain": true }],
+  "workers_dev": false
+}
