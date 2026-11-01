@@ -97,6 +97,32 @@ export function createUi(ctx) {
                 });
                 panel.append(label, input);
             },
+            // a row of options, the picked one green. a click writes its index into C's i32.
+            // divs, not buttons, like the demo tabs: a focused button would also react to Space
+            js_ui_choice(namePtr, nameLen, optionsPtr, optionsLen, valuePtr) {
+                if (!panel) makePanel();
+                const label = document.createElement("span");
+                label.textContent = text(namePtr, nameLen);
+                const row = document.createElement("div");
+                row.style.cssText = "grid-column:span 2;display:flex;gap:4px";
+                const show = (picked) => options.forEach((option, i) => {
+                    option.style.color = i === picked ? "#4f4" : "";
+                    option.style.background = i === picked ? "rgba(68,255,68,0.12)" : "";
+                });
+                const options = text(optionsPtr, optionsLen).split("|").map((name, i) => {
+                    const option = document.createElement("div");
+                    option.textContent = name;
+                    option.style.cssText = "padding:2px 6px;border-radius:4px;cursor:pointer;user-select:none";
+                    option.addEventListener("click", () => {
+                        new Int32Array(ctx.memory.buffer, valuePtr, 1)[0] = i;
+                        show(i);
+                    });
+                    row.appendChild(option);
+                    return option;
+                });
+                show(new Int32Array(ctx.memory.buffer, valuePtr, 1)[0]);
+                panel.append(label, row);
+            },
             js_ui_slider(namePtr, nameLen, min, max, step, log, valuePtr) {
                 if (!panel) makePanel();
                 const name = decoder.decode(new Uint8Array(ctx.memory.buffer, namePtr, nameLen));

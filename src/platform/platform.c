@@ -34,6 +34,10 @@ void plat_ui_slider_log(const char *name, f32 min, f32 max, f32 step, f32 *value
     js_ui_slider(name, str_len(name), min, max, step, 1, value);
 }
 
+void plat_ui_choice(const char *name, const char *options, i32 *value) {
+    js_ui_choice(name, str_len(name), options, str_len(options), value);
+}
+
 void plat_ui_image(const char *name, GpuHandle texture) {
     js_ui_image(name, str_len(name), texture);
 }

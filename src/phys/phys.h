@@ -37,17 +37,21 @@ i32 particle_collide_spheres(Particle *a, real radius_a, Particle *b, real radiu
 // Force generators (ch 5): a force that is asked every step to add itself to a particle.
 // A kind and a switch, not function pointers, so the force math can be inlined into the loop.
 // No per particle data, so one generator can serve any number of particles.
-typedef enum { FORCE_GRAVITY, FORCE_DRAG } ForceKind;
+typedef enum { FORCE_GRAVITY, FORCE_DRAG, FORCE_ATTRACT, FORCE_EXPLODE } ForceKind;
 typedef struct {
     ForceKind kind;
     union {
         V3 gravity;                   // FORCE_GRAVITY: acceleration, scaled by mass into a force
         struct { real k1, k2; } drag; // FORCE_DRAG: k1 * speed + k2 * speed^2, against the velocity
+        struct { Particle *other; real g; } attract; // FORCE_ATTRACT: pull toward other, g m1 m2 / r^2 (book 3.2, eq 3.3)
+        struct { V3 center; real force; } explode;   // FORCE_EXPLODE: push straight away from center, the same force on every mass
     };
 } ForceGen;
 
 ForceGen force_gravity(V3 gravity);
 ForceGen force_drag(real k1, real k2);
+ForceGen force_attract(Particle *other, real g); // no pull on other itself, or if either mass is infinite
+ForceGen force_explode(V3 center, real force);   // a blast (simple version of book 17.2.3). nothing at the center itself
 FORCE_INLINE void force_update(ForceGen *g, Particle *p, real dt); // adds g's force to p for this step
 
 // Which generator acts on which particle. Run force_registry_update before integrating.

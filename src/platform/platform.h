@@ -26,6 +26,7 @@ IMPORT("js_ui_title") void js_ui_title(const char *s, i32 len);
 IMPORT("js_ui_title_bottom") i32 js_ui_title_bottom(void);
 IMPORT("js_ui_image") void js_ui_image(const char *name, i32 len, GpuHandle texture);
 IMPORT("js_ui_slider") void js_ui_slider(const char *name, i32 len, f32 min, f32 max, f32 step, i32 log, f32 *value);
+IMPORT("js_ui_choice") void js_ui_choice(const char *name, i32 len, const char *options, i32 options_len, i32 *value);
 IMPORT("js_ui_clear") void js_ui_clear(void);
 IMPORT("js_ui_demo") void js_ui_demo(const char *id, i32 id_len, const char *chapter, i32 chapter_len, const char *name, i32 name_len);
 IMPORT("js_ui_demo_bar") void js_ui_demo_bar(i32 *picked);
@@ -60,6 +61,7 @@ f64 plat_now_ms(void); // milliseconds, for measuring how long things take
 // debug panel. adds a slider that writes straight into *value whenever it moves. call once, at init
 void plat_ui_slider(const char *name, f32 min, f32 max, f32 step, f32 *value);
 void plat_ui_slider_log(const char *name, f32 min, f32 max, f32 step, f32 *value); // small values get more room. min > 0
+void plat_ui_choice(const char *name, const char *options, i32 *value); // options split by |, "A|B|C". a click writes the index into *value
 void plat_ui_image(const char *name, GpuHandle texture); // file picker, the image goes into the texture (needs COPY_DST + RENDER_ATTACHMENT)
 void plat_ui_clear(void);            // removes every slider and picker, e.g. before another demo adds its own
 void plat_ui_title(const char *s);   // big green title in the top left corner

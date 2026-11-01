@@ -9,6 +9,14 @@ ForceGen force_drag(real k1, real k2) {
     return (ForceGen){.kind = FORCE_DRAG, .drag = {k1, k2}};
 }
 
+ForceGen force_attract(Particle *other, real g) {
+    return (ForceGen){.kind = FORCE_ATTRACT, .attract = {other, g}};
+}
+
+ForceGen force_explode(V3 center, real force) {
+    return (ForceGen){.kind = FORCE_EXPLODE, .explode = {center, force}};
+}
+
 FORCE_INLINE void force_update(ForceGen *g, Particle *p, real dt) {
     (void)dt; // no generator needs it yet. springs (ch 6) will
     switch (g->kind) {
@@ -21,6 +29,26 @@ FORCE_INLINE void force_update(ForceGen *g, Particle *p, real dt) {
         // which needs no normalize, so a particle at rest gets zero force instead of NaN
         real speed = v3_magnitude(p->velocity);
         particle_add_force(p, v3_multiplied(p->velocity, -(g->drag.k1 + g->drag.k2 * speed)));
+        break;
+    }
+    case FORCE_ATTRACT: {
+        Particle *o = g->attract.other;
+        if (o == p || !particle_has_finite_mass(p) || !particle_has_finite_mass(o)) return;
+        V3 d = v3_subtracted(o->position, p->position);
+        real r2 = v3_square_magnitude(d);
+        if (r2 == 0) return; // same spot: no direction
+        // g m1 m2 / r^2 along d / r, so d * g m1 m2 / r^3
+        real r = real_sqrt(r2);
+        real f = g->attract.g * particle_get_mass(p) * particle_get_mass(o) / (r2 * r);
+        particle_add_force(p, v3_multiplied(d, f));
+        break;
+    }
+    case FORCE_EXPLODE: {
+        // the same force on light and heavy, so the light ones get more speed (dv = F dt / m)
+        V3 d = v3_subtracted(p->position, g->explode.center);
+        real r2 = v3_square_magnitude(d);
+        if (r2 == 0) return; // at the center: no direction
+        particle_add_force(p, v3_multiplied(d, g->explode.force / real_sqrt(r2)));
         break;
     }
     }

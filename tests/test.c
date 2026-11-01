@@ -137,6 +137,51 @@ static void test_force_drag(void) {
     CHECK(near(ball.velocity.y, -10, 0.01f));
 }
 
+static void test_force_attract(void) {
+    Particle a = {0}, b = {0};
+    particle_set_mass(&a, 2);
+    particle_set_mass(&b, 3);
+    b.position = v3_create(2, 0, 0);
+    ForceGen to_a = force_attract(&a, 1), to_b = force_attract(&b, 1);
+    force_update(&to_b, &a, 1);
+    force_update(&to_a, &b, 1);
+    NEAR(a.force_accum.x, 1.5f);         // 1 * 2 * 3 / 2^2, toward b
+    NEAR(b.force_accum.x, -1.5f);        // equal and opposite (Newton 3)
+    NEAR(a.force_accum.y, 0);
+
+    particle_clear_force_accum(&a);
+    force_update(&to_a, &a, 1);          // no pull on itself
+    CHECK(a.force_accum.x == 0);
+
+    b.position = a.position;             // same spot: zero force, not NaN
+    force_update(&to_b, &a, 1);
+    CHECK(a.force_accum.x == 0 && a.force_accum.y == 0 && a.force_accum.z == 0);
+
+    Particle wall = {0};                 // infinite mass: no pull either way
+    wall.position = v3_create(1, 0, 0);
+    ForceGen to_wall = force_attract(&wall, 1);
+    force_update(&to_wall, &a, 1);
+    force_update(&to_a, &wall, 1);
+    CHECK(a.force_accum.x == 0 && wall.force_accum.x == 0);
+}
+
+static void test_force_explode(void) {
+    ForceGen blast = force_explode(v3_create(1, 0, 0), 10);
+    Particle light = {0}, heavy = {0}, middle = {0};
+    particle_set_mass(&light, 1);
+    particle_set_mass(&heavy, 100);
+    light.position = v3_create(4, 0, 0);
+    heavy.position = v3_create(1, -2, 0);
+    middle.position = v3_create(1, 0, 0);
+    force_update(&blast, &light, 1);
+    force_update(&blast, &heavy, 1);
+    force_update(&blast, &middle, 1);
+    NEAR(light.force_accum.x, 10);       // straight away from the center
+    NEAR(heavy.force_accum.y, -10);      // same force whatever the mass
+    NEAR(heavy.force_accum.x, 0);
+    CHECK(middle.force_accum.x == 0 && middle.force_accum.y == 0 && middle.force_accum.z == 0); // at the center, not NaN
+}
+
 static void test_force_registry(void) {
     ForceGen g = force_gravity(v3_create(0, -10, 0));
     ForceGen d = force_drag(1, 0);
@@ -413,6 +458,8 @@ __attribute__((export_name("run_tests"))) i32 run_tests(void) {
     test_forces();
     test_force_gravity();
     test_force_drag();
+    test_force_attract();
+    test_force_explode();
     test_force_registry();
     test_mass();
     test_damping();

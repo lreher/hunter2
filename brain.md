@@ -21,3 +21,4 @@ How we work. Read this first, every session.
 9. The user checks every change in the browser. Claude runs quick headless tests first and only mentions them when it matters (a failure, a surprise). Don't bombard the user with info they don't need.
 10. Code conventions live in focus/architecture.md and can change. Before following one, ask if it still holds, with a small example ("Use the v2_add / v2_added pair style for the new box math?").
 11. Git: never credit Claude. No Co-Authored-By lines, no mention of Claude in commits, PRs or code.
+12. Regression after a known change: first list the changed code paths and offer variant builds to compare in Chrome. No headless checks before that.

@@ -57,11 +57,13 @@ const canvas = {
   addEventListener(type, fn) { canvasHandlers[type] = fn; },
   requestPointerLock() { globalThis.document.pointerLockElement = canvas; },
 };
-// debug panel elements made by web/ui.js. sliders[name].set(v) moves a slider like a user would
+// debug panel elements made by web/ui.js. sliders[name].set(v) moves a slider like a user would,
+// sliders[name].children[i].handlers.click() picks option i of a choice row
 export const sliders = {};
 export const tabs = []; // demo bar tabs. tabs[i].handlers.click() picks demo i
-const element = (tag) => ({ tag, style: {}, handlers: {}, textContent: "", value: "",
+const element = (tag) => ({ tag, style: {}, handlers: {}, textContent: "", value: "", children: [],
   addEventListener(type, fn) { this.handlers[type] = fn; }, remove() {}, scrollIntoView() {},
+  appendChild(child) { this.children.push(child); },
   getBoundingClientRect: () => ({ top: 12, bottom: 66, left: 16, right: 200 }),
   append(label, input) { if (input) sliders[label.textContent] = input; else tabs.push(label); }, // panel: label, slider, value. demo bar: one tab
   set(v) { this.value = String(this.toPosition ? this.toPosition(v) : v); this.handlers.input(); } });
