@@ -2,15 +2,15 @@
 #include "phys/phys.h"
 
 // fills the parts both kinds share. normal_speed: separating speed before any impulse, negative = closing
-static void particle_contact_fill(ParticleContact *c, Particle *a, Particle *b, V3 normal, real total_inverse_mass,
-                                  real gap, real normal_speed, real restitution, real dt) {
+static void particle_contact_fill(ParticleContact *c, Particle *a, Particle *b, Vector3 normal, real total_inverse_mass,
+                                  real gap, real normal_speed, real restitution, real time_step) {
     c->a = a;
     c->b = b;
     c->normal = normal;
     c->total_inverse_mass = total_inverse_mass;
     // a gap may close this step, not more. an overlap may not get deeper, and opens a little each step (fix)
-    c->target = gap > 0 ? -gap / dt : 0;
-    c->fix = gap < -PHYS_OVERLAP_SLOP ? (-gap - PHYS_OVERLAP_SLOP) * PHYS_OVERLAP_FIX / dt : 0;
+    c->target = gap > 0 ? -gap / time_step : 0;
+    c->fix = gap < -PHYS_OVERLAP_SLOP ? (-gap - PHYS_OVERLAP_SLOP) * PHYS_OVERLAP_FIX / time_step : 0;
     // closing faster than the gap allows: they meet this step. slow impacts do not bounce
     c->bounce = normal_speed < c->target ? -normal_speed * particle_bounce_factor(-normal_speed, restitution) : 0;
     c->impulse = 0;
@@ -18,11 +18,11 @@ static void particle_contact_fill(ParticleContact *c, Particle *a, Particle *b, 
 }
 
 i32 particle_contact_find_spheres(ParticleContact *c, Particle *a, real radius_a, Particle *b, real radius_b,
-                                  real restitution, real dt, real margin) {
-    V3 delta = v3_subtracted(b->position, a->position);
+                                  real restitution, real time_step, real margin) {
+    Vector3 delta = vector3_subtracted(b->position, a->position);
     real min_distance = radius_a + radius_b;
     real reach = min_distance + margin;
-    real square_distance = v3_square_magnitude(delta);
+    real square_distance = vector3_square_magnitude(delta);
     if (square_distance >= reach * reach) return 0;
 
     real total_inverse_mass = a->inverse_mass + b->inverse_mass;
@@ -30,35 +30,35 @@ i32 particle_contact_find_spheres(ParticleContact *c, Particle *a, real radius_a
 
     // if they sit exactly on top of each other, pick any direction
     real distance = real_sqrt(square_distance);
-    V3 normal = distance > 0.00001f ? v3_multiplied(delta, 1 / distance) : v3_create(1, 0, 0);
-    real normal_speed = v3_scalar_product(v3_subtracted(b->velocity, a->velocity), normal);
-    particle_contact_fill(c, a, b, normal, total_inverse_mass, distance - min_distance, normal_speed, restitution, dt);
+    Vector3 normal = distance > 0.00001f ? vector3_multiplied(delta, 1 / distance) : vector3_create(1, 0, 0);
+    real normal_speed = vector3_scalar_product(vector3_subtracted(b->velocity, a->velocity), normal);
+    particle_contact_fill(c, a, b, normal, total_inverse_mass, distance - min_distance, normal_speed, restitution, time_step);
     return 1;
 }
 
-i32 particle_contact_find_plane(ParticleContact *c, Particle *p, real radius, V3 normal, real offset,
-                                real restitution, real friction, real dt, real margin) {
-    real gap = v3_scalar_product(p->position, normal) - offset - radius;
+i32 particle_contact_find_plane(ParticleContact *c, Particle *particle, real radius, Vector3 normal, real offset,
+                                real restitution, real friction, real time_step, real margin) {
+    real gap = vector3_scalar_product(particle->position, normal) - offset - radius;
     if (gap >= margin) return 0;
-    if (p->inverse_mass <= 0) return 0;
+    if (particle->inverse_mass <= 0) return 0;
 
-    real normal_speed = v3_scalar_product(p->velocity, normal);
-    particle_contact_fill(c, p, 0, v3_multiplied(normal, -1), p->inverse_mass, gap, normal_speed, restitution, dt);
+    real normal_speed = vector3_scalar_product(particle->velocity, normal);
+    particle_contact_fill(c, particle, 0, vector3_multiplied(normal, -1), particle->inverse_mass, gap, normal_speed, restitution, time_step);
     if (normal_speed < c->target) { // touching this step: lose some of the sideways velocity
-        V3 side = v3_subtracted(p->velocity, v3_multiplied(normal, normal_speed));
-        v3_add_scaled(&p->velocity, side, -friction);
+        Vector3 side = vector3_subtracted(particle->velocity, vector3_multiplied(normal, normal_speed));
+        vector3_add_scaled(&particle->velocity, side, -friction);
     }
     return 1;
 }
 
 static void particle_contact_apply(ParticleContact *c, real impulse) {
-    v3_add_scaled(&c->a->velocity, c->normal, -impulse * c->a->inverse_mass);
-    if (c->b) v3_add_scaled(&c->b->velocity, c->normal, impulse * c->b->inverse_mass);
+    vector3_add_scaled(&c->a->velocity, c->normal, -impulse * c->a->inverse_mass);
+    if (c->b) vector3_add_scaled(&c->b->velocity, c->normal, impulse * c->b->inverse_mass);
 }
 
 static real particle_contact_speed(ParticleContact *c) {
-    V3 relative = c->b ? v3_subtracted(c->b->velocity, c->a->velocity) : v3_multiplied(c->a->velocity, -1);
-    return v3_scalar_product(relative, c->normal);
+    Vector3 relative = c->b ? vector3_subtracted(c->b->velocity, c->a->velocity) : vector3_multiplied(c->a->velocity, -1);
+    return vector3_scalar_product(relative, c->normal);
 }
 
 void particle_contacts_warm(ParticleContact *now, i32 count, ParticleContact *before, i32 before_count) {
@@ -112,10 +112,10 @@ void particle_contacts_bounce(ParticleContact *list, i32 count, i32 passes) {
     for (i32 i = 0; i < count; i++) {
         ParticleContact *c = &list[i];
         if (c->bounce <= 0 || c->impulse <= 0 || !c->b) continue;
-        V3 delta = v3_subtracted(c->b->position, c->a->position);
-        real distance = v3_magnitude(delta);
+        Vector3 delta = vector3_subtracted(c->b->position, c->a->position);
+        real distance = vector3_magnitude(delta);
         if (distance <= 0.00001f) continue;
-        c->normal = v3_multiplied(delta, 1 / distance);
+        c->normal = vector3_multiplied(delta, 1 / distance);
         real speed = particle_contact_speed(c);
         real square = c->bounce * c->bounce + speed * speed - c->target * c->target;
         c->bounce = square > 0 ? real_sqrt(square) : 0;

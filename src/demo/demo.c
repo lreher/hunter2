@@ -31,12 +31,12 @@ void demo_update(i32 demo) {
     }
 }
 
-FORCE_INLINE void demo_step(i32 demo, real dt) {
+FORCE_INLINE void demo_step(i32 demo, real time_step) {
     switch (demo) {
-    case DEMO_BALLS: balls_step(dt); break;
-    case DEMO_CLOUD: cloud_step(dt); break;
-    case DEMO_BRIDGE: bridge_step(dt); break;
-    case DEMO_POOL: pool_step(dt); break;
+    case DEMO_BALLS: balls_step(time_step); break;
+    case DEMO_CLOUD: cloud_step(time_step); break;
+    case DEMO_BRIDGE: bridge_step(time_step); break;
+    case DEMO_POOL: pool_step(time_step); break;
     }
 }
 

@@ -33,7 +33,7 @@ static i32 cloud_spawned_start;
 
 typedef struct {
     Particle particle;
-    V3 previous_position; // from the step before, for blending
+    Vector3 previous_position; // from the step before, for blending
     real radius;
     real reach; // how far it can move this step, for the contact margin
     f32 r, g, b;
@@ -60,10 +60,10 @@ static i32 cloud_stats_full;     // steps per second where the contact list ran 
 static ParticleContact cloud_contact_lists[2][CLOUD_MAX_CONTACTS];
 static i32 cloud_contact_counts[2], cloud_contacts_now;
 
-static i32 cloud_overlaps_placed(V3 position, real radius, i32 placed) {
+static i32 cloud_overlaps_placed(Vector3 position, real radius, i32 placed) {
     for (i32 i = 0; i < placed; i++) {
         real gap = radius + cloud_bodies[i].radius;
-        if (v3_square_magnitude(v3_subtracted(position, cloud_bodies[i].particle.position)) < gap * gap) return 1;
+        if (vector3_square_magnitude(vector3_subtracted(position, cloud_bodies[i].particle.position)) < gap * gap) return 1;
     }
     return 0;
 }
@@ -81,24 +81,24 @@ static void cloud_spawn(void) {
     f32 hi = cloud_radius_min < cloud_radius_max ? cloud_radius_max : cloud_radius_min;
 
     real mass_total = 0;
-    V3 mass_center = v3_zero();
+    Vector3 mass_center = vector3_zero();
     for (i32 i = 0; i < cloud_alive; i++) {
         Body *body = &cloud_bodies[i];
         body->radius = rand_f32(lo, hi);
         Particle *p = &body->particle;
         real reach = CLOUD_RADIUS - body->radius;
         for (i32 attempt = 0; attempt < 100; attempt++) { // random spot inside the sphere, not on another body
-            do p->position = v3_create(rand_f32(-reach, reach), rand_f32(-reach, reach), rand_f32(-reach, reach));
-            while (v3_square_magnitude(p->position) > reach * reach);
+            do p->position = vector3_create(rand_f32(-reach, reach), rand_f32(-reach, reach), rand_f32(-reach, reach));
+            while (vector3_square_magnitude(p->position) > reach * reach);
             if (!cloud_overlaps_placed(p->position, body->radius, i)) break;
         }
-        p->acceleration = v3_zero();
-        p->force_accum = v3_zero();
+        p->acceleration = vector3_zero();
+        p->force_total = vector3_zero();
         p->damping = 1;
         real mass = CLOUD_DENSITY * body->radius * body->radius * body->radius;
         particle_set_mass(p, mass);
         mass_total += mass;
-        v3_add_scaled(&mass_center, p->position, mass);
+        vector3_add_scaled(&mass_center, p->position, mass);
 
         f32 t = hi > lo ? (body->radius - lo) / (hi - lo) : 0; // small blue, big orange
         body->r = 0.30f + 0.68f * t;
@@ -108,24 +108,24 @@ static void cloud_spawn(void) {
 
     // center of mass to the origin. spin grows with the distance r from the center, cloud_speed at the edge.
     // in a uniform ball the pull at r also grows with r, so at sqrt(G M / R) every body would be in a circular orbit
-    v3_multiply(&mass_center, 1 / mass_total);
+    vector3_multiply(&mass_center, 1 / mass_total);
     real edge_speed = cloud_speed;
     real per_meter = edge_speed / CLOUD_RADIUS; // for spin
-    V3 momentum = v3_zero();
+    Vector3 momentum = vector3_zero();
     for (i32 i = 0; i < cloud_alive; i++) {
         Particle *p = &cloud_bodies[i].particle;
-        v3_subtract(&p->position, mass_center);
-        V3 r = p->position;
+        vector3_subtract(&p->position, mass_center);
+        Vector3 r = p->position;
         switch (cloud_start) {
-        case CLOUD_EXPLODE: p->velocity = v3_zero(); break;                                           // at rest, the blast pushes
-        case CLOUD_RANDOM: p->velocity = v3_multiplied(rand_unit_v3(), rand_f32(0, edge_speed)); break; // any way, up to edge_speed
-        case CLOUD_SPIN: p->velocity = v3_create(per_meter * r.z, 0, -per_meter * r.x); break;      // around the y axis
+        case CLOUD_EXPLODE: p->velocity = vector3_zero(); break;                                           // at rest, the blast pushes
+        case CLOUD_RANDOM: p->velocity = vector3_multiplied(rand_unit_vector3(), rand_f32(0, edge_speed)); break; // any way, up to edge_speed
+        case CLOUD_SPIN: p->velocity = vector3_create(per_meter * r.z, 0, -per_meter * r.x); break;      // around the y axis
         }
-        v3_add_scaled(&momentum, p->velocity, particle_get_mass(p));
+        vector3_add_scaled(&momentum, p->velocity, particle_get_mass(p));
         cloud_bodies[i].previous_position = p->position;
     }
-    V3 drift = v3_multiplied(momentum, 1 / mass_total); // so the cloud as a whole stays put
-    for (i32 i = 0; i < cloud_alive; i++) v3_subtract(&cloud_bodies[i].particle.velocity, drift);
+    Vector3 drift = vector3_multiplied(momentum, 1 / mass_total); // so the cloud as a whole stays put
+    for (i32 i = 0; i < cloud_alive; i++) vector3_subtract(&cloud_bodies[i].particle.velocity, drift);
 
     force_registry_clear(&cloud_forces);
     for (i32 j = 0; j < cloud_alive; j++) cloud_pulls[j] = force_attract(&cloud_bodies[j].particle, cloud_g * CLOUD_G_UNIT);
@@ -146,7 +146,7 @@ static void cloud_spawn(void) {
         real k = edge_speed * CLOUD_DENSITY * cloud_alive / (CLOUD_BLAST_TIME * inverse_radius_sum);
         for (i32 i = 0; i < cloud_alive; i++) {
             real r = cloud_bodies[i].radius;
-            cloud_blast[i] = force_explode(v3_zero(), k * r * r);
+            cloud_blast[i] = force_explode(vector3_zero(), k * r * r);
             force_registry_add(&cloud_blasts, &cloud_bodies[i].particle, &cloud_blast[i]);
         }
         cloud_blast_left = CLOUD_BLAST_TIME;
@@ -174,23 +174,23 @@ static void cloud_update(void) {
                            cloud_start != cloud_spawned_start;
     if (plat_key_pressed(KEY_SPACE) || settings_changed) cloud_spawn();
     if (cloud_g != cloud_applied_g) {
-        for (i32 j = 0; j < cloud_alive; j++) cloud_pulls[j].attract.g = cloud_g * CLOUD_G_UNIT;
+        for (i32 j = 0; j < cloud_alive; j++) cloud_pulls[j].attract.gravitational_constant = cloud_g * CLOUD_G_UNIT;
         cloud_applied_g = cloud_g;
     }
 }
 
-FORCE_INLINE void cloud_step(real dt) {
-    force_registry_update(&cloud_forces, dt);
+FORCE_INLINE void cloud_step(real time_step) {
+    force_registry_update(&cloud_forces, time_step);
     if (cloud_blasts.count > 0) {
-        force_registry_update(&cloud_blasts, dt);
-        cloud_blast_left -= dt;
-        if (cloud_blast_left < dt / 2) force_registry_clear(&cloud_blasts); // half a step: float error never adds a step
+        force_registry_update(&cloud_blasts, time_step);
+        cloud_blast_left -= time_step;
+        if (cloud_blast_left < time_step / 2) force_registry_clear(&cloud_blasts); // half a step: float error never adds a step
     }
     for (i32 i = 0; i < cloud_alive; i++) {
         Body *body = &cloud_bodies[i];
         body->previous_position = body->particle.position;
-        particle_integrate_velocity(&body->particle, dt);
-        body->reach = v3_magnitude(body->particle.velocity) * dt;
+        particle_apply_forces(&body->particle, time_step);
+        body->reach = vector3_magnitude(body->particle.velocity) * time_step;
     }
 
     // every pair that could touch this step. found in (i, j) order, so the list is sorted for the warm start
@@ -203,7 +203,7 @@ FORCE_INLINE void cloud_step(real dt) {
             Body *a = &cloud_bodies[i];
             Body *b = &cloud_bodies[j];
             if (particle_contact_find_spheres(&list[count], &a->particle, a->radius, &b->particle, b->radius,
-                                              cloud_bounce, dt, a->reach + b->reach)) {
+                                              cloud_bounce, time_step, a->reach + b->reach)) {
                 list[count].id_a = i;
                 list[count].id_b = j;
                 count++;
@@ -216,16 +216,16 @@ FORCE_INLINE void cloud_step(real dt) {
 
     particle_contacts_warm(list, count, cloud_contact_lists[before], cloud_contact_counts[before]);
     particle_contacts_solve(list, count, CLOUD_SOLVER_PASSES);
-    for (i32 i = 0; i < cloud_alive; i++) particle_integrate_position(&cloud_bodies[i].particle, dt);
+    for (i32 i = 0; i < cloud_alive; i++) particle_move(&cloud_bodies[i].particle, time_step);
     particle_contacts_bounce(list, count, CLOUD_SOLVER_PASSES);
 }
 
 FORCE_INLINE void cloud_draw(f32 alpha, f32 seconds, f32 hud_top) {
     (void)seconds;
-    V3 lo = v3_create(REAL_MAX, REAL_MAX, REAL_MAX), hi = v3_create(-REAL_MAX, -REAL_MAX, -REAL_MAX);
+    Vector3 lo = vector3_create(REAL_MAX, REAL_MAX, REAL_MAX), hi = vector3_create(-REAL_MAX, -REAL_MAX, -REAL_MAX);
     for (i32 i = 0; i < cloud_alive; i++) {
         Body *body = &cloud_bodies[i];
-        V3 c = v3_lerp(body->previous_position, body->particle.position, alpha);
+        Vector3 c = vector3_lerp(body->previous_position, body->particle.position, alpha);
         render_draw_sphere(c, body->radius, body->r, body->g, body->b);
         real r = body->radius;
         if (c.x - r < lo.x) lo.x = c.x - r;

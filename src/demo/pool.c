@@ -34,7 +34,7 @@ static f32 pool_spawned_count, pool_spawned_min, pool_spawned_max;
 
 typedef struct {
     Particle particle;
-    V3 previous_position; // from the step before, for blending
+    Vector3 previous_position; // from the step before, for blending
     real radius;
     real reach; // how far it can move this step, for the contact margin
 } PoolBall;
@@ -45,7 +45,7 @@ static ForceReg pool_regs[POOL_MAX];
 static ForceRegistry pool_forces = {pool_regs, 0, POOL_MAX};
 
 // the box as 6 planes, normals pointing inside: floor, ceiling, left, right, back, front
-static const V3 pool_wall_normals[6] = {{0, 1, 0}, {0, -1, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}};
+static const Vector3 pool_wall_normals[6] = {{0, 1, 0}, {0, -1, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}};
 static const real pool_wall_offsets[6] = {0, -POOL_BOX_H, 0, -POOL_BOX_W, -POOL_BOX_D / 2, -POOL_BOX_D / 2};
 
 // this step's contacts and last step's (for the warm start), swapped every step
@@ -54,10 +54,10 @@ static i32 pool_contact_counts[2], pool_contacts_now;
 static i32 pool_stats_contacts; // per second, see pool_stats
 static i32 pool_stats_full;     // steps per second where the contact list ran full
 
-static i32 pool_overlaps_placed(V3 position, real radius, i32 placed) {
+static i32 pool_overlaps_placed(Vector3 position, real radius, i32 placed) {
     for (i32 i = 0; i < placed; i++) {
         real gap = radius + pool_balls[i].radius;
-        if (v3_square_magnitude(v3_subtracted(position, pool_balls[i].particle.position)) < gap * gap) return 1;
+        if (vector3_square_magnitude(vector3_subtracted(position, pool_balls[i].particle.position)) < gap * gap) return 1;
     }
     return 0;
 }
@@ -89,13 +89,13 @@ static void pool_spawn(void) {
         ball->radius = r;
         Particle *p = &ball->particle;
         for (i32 attempt = 0; attempt < 100; attempt++) { // keep the last try if the box is too full
-            p->position = v3_create(rand_f32(r, POOL_BOX_W - r), rand_f32(r, POOL_BOX_H - r),
+            p->position = vector3_create(rand_f32(r, POOL_BOX_W - r), rand_f32(r, POOL_BOX_H - r),
                                     rand_f32(-POOL_BOX_D / 2 + r, POOL_BOX_D / 2 - r));
             if (!pool_overlaps_placed(p->position, r, i)) break;
         }
-        p->velocity = v3_zero();
-        p->acceleration = v3_create(0, -POOL_GRAVITY, 0);
-        p->force_accum = v3_zero();
+        p->velocity = vector3_zero();
+        p->acceleration = vector3_create(0, -POOL_GRAVITY, 0);
+        p->force_total = vector3_zero();
         p->damping = 1;
         particle_set_mass(p, POOL_MASS_PER_R2 * r * r);
         ball->previous_position = p->position;
@@ -128,13 +128,13 @@ static void pool_update(void) {
     pool_set_water();
 }
 
-FORCE_INLINE void pool_step(real dt) {
-    force_registry_update(&pool_forces, dt);
+FORCE_INLINE void pool_step(real time_step) {
+    force_registry_update(&pool_forces, time_step);
     for (i32 i = 0; i < pool_alive; i++) {
         PoolBall *ball = &pool_balls[i];
         ball->previous_position = ball->particle.position;
-        particle_integrate_velocity(&ball->particle, dt);
-        ball->reach = v3_magnitude(ball->particle.velocity) * dt;
+        particle_apply_forces(&ball->particle, time_step);
+        ball->reach = vector3_magnitude(ball->particle.velocity) * time_step;
     }
 
     // every pair that could touch this step, then the walls (ids after every ball). sorted for the warm start
@@ -147,7 +147,7 @@ FORCE_INLINE void pool_step(real dt) {
         for (i32 j = i + 1; j < pool_alive && count < POOL_MAX_CONTACTS - 6; j++) {
             PoolBall *b = &pool_balls[j];
             if (particle_contact_find_spheres(&list[count], &a->particle, a->radius, &b->particle, b->radius,
-                                              POOL_BALL_BOUNCE, dt, a->reach + b->reach)) {
+                                              POOL_BALL_BOUNCE, time_step, a->reach + b->reach)) {
                 list[count].id_a = i;
                 list[count].id_b = j;
                 count++;
@@ -155,7 +155,7 @@ FORCE_INLINE void pool_step(real dt) {
         }
         for (i32 wall = 0; wall < 6; wall++) {
             if (particle_contact_find_plane(&list[count], &a->particle, a->radius, pool_wall_normals[wall],
-                                            pool_wall_offsets[wall], POOL_WALL_BOUNCE, POOL_WALL_FRICTION, dt, a->reach)) {
+                                            pool_wall_offsets[wall], POOL_WALL_BOUNCE, POOL_WALL_FRICTION, time_step, a->reach)) {
                 list[count].id_a = i;
                 list[count].id_b = POOL_MAX + wall;
                 count++;
@@ -168,20 +168,20 @@ FORCE_INLINE void pool_step(real dt) {
 
     particle_contacts_warm(list, count, pool_contact_lists[before], pool_contact_counts[before]);
     particle_contacts_solve(list, count, POOL_SOLVER_PASSES);
-    for (i32 i = 0; i < pool_alive; i++) particle_integrate_position(&pool_balls[i].particle, dt);
+    for (i32 i = 0; i < pool_alive; i++) particle_move(&pool_balls[i].particle, time_step);
     particle_contacts_bounce(list, count, POOL_SOLVER_PASSES);
 }
 
 // the 12 edges of the box
-static void pool_draw_box_edges(V3 lo, V3 hi, f32 r, f32 g, f32 b) {
+static void pool_draw_box_edges(Vector3 lo, Vector3 hi, f32 r, f32 g, f32 b) {
     for (i32 i = 0; i < 4; i++) {
         f32 u = (i & 1) ? hi.y : lo.y;
         f32 v = (i & 2) ? hi.z : lo.z;
-        render_draw_line(v3_create(lo.x, u, v), v3_create(hi.x, u, v), r, g, b); // along x
+        render_draw_line(vector3_create(lo.x, u, v), vector3_create(hi.x, u, v), r, g, b); // along x
         u = (i & 1) ? hi.x : lo.x;
-        render_draw_line(v3_create(u, lo.y, v), v3_create(u, hi.y, v), r, g, b); // along y
+        render_draw_line(vector3_create(u, lo.y, v), vector3_create(u, hi.y, v), r, g, b); // along y
         v = (i & 2) ? hi.y : lo.y;
-        render_draw_line(v3_create(u, v, lo.z), v3_create(u, v, hi.z), r, g, b); // along z
+        render_draw_line(vector3_create(u, v, lo.z), vector3_create(u, v, hi.z), r, g, b); // along z
     }
 }
 
@@ -190,7 +190,7 @@ FORCE_INLINE void pool_draw(f32 alpha, f32 seconds, f32 hud_top) {
     // balls: yellow if lighter than the water (floats), red if heavier (sinks). bluer the more of it is under water
     for (i32 i = 0; i < pool_alive; i++) {
         PoolBall *ball = &pool_balls[i];
-        V3 c = v3_lerp(ball->previous_position, ball->particle.position, alpha);
+        Vector3 c = vector3_lerp(ball->previous_position, ball->particle.position, alpha);
         real r = ball->radius;
         real density = POOL_MASS_PER_R2 * r * r / (4.0f / 3.0f * F32_PI * r * r * r);
         f32 red = 0.98f, green = 0.78f, blue = 0.25f;
@@ -207,14 +207,14 @@ FORCE_INLINE void pool_draw(f32 alpha, f32 seconds, f32 hud_top) {
     // water: a grid on the surface, the waterline brighter on the walls
     f32 y = pool_water_level;
     for (i32 x = 1; x < (i32)POOL_BOX_W; x++)
-        render_draw_line(v3_create(x, y, -POOL_BOX_D / 2), v3_create(x, y, POOL_BOX_D / 2), 0.25f, 0.45f, 0.80f);
+        render_draw_line(vector3_create(x, y, -POOL_BOX_D / 2), vector3_create(x, y, POOL_BOX_D / 2), 0.25f, 0.45f, 0.80f);
     for (i32 z = 1; z < (i32)POOL_BOX_D; z++)
-        render_draw_line(v3_create(0, y, z - POOL_BOX_D / 2), v3_create(POOL_BOX_W, y, z - POOL_BOX_D / 2), 0.25f, 0.45f, 0.80f);
-    pool_draw_box_edges(v3_create(0, y, -POOL_BOX_D / 2), v3_create(POOL_BOX_W, y, POOL_BOX_D / 2), 0.5f, 0.75f, 1.0f);
+        render_draw_line(vector3_create(0, y, z - POOL_BOX_D / 2), vector3_create(POOL_BOX_W, y, z - POOL_BOX_D / 2), 0.25f, 0.45f, 0.80f);
+    pool_draw_box_edges(vector3_create(0, y, -POOL_BOX_D / 2), vector3_create(POOL_BOX_W, y, POOL_BOX_D / 2), 0.5f, 0.75f, 1.0f);
 
-    render_set_shadow_area(v3_create(0, -0.1f, -POOL_BOX_D / 2), v3_create(POOL_BOX_W, POOL_BOX_H, POOL_BOX_D / 2));
-    render_draw_box(v3_create(POOL_BOX_W / 2, -0.05f, 0), v3_create(POOL_BOX_W / 2, 0.05f, POOL_BOX_D / 2), 0.20f, 0.24f, 0.34f);
-    pool_draw_box_edges(v3_create(0, 0, -POOL_BOX_D / 2), v3_create(POOL_BOX_W, POOL_BOX_H, POOL_BOX_D / 2), 0.45f, 0.55f, 0.75f);
+    render_set_shadow_area(vector3_create(0, -0.1f, -POOL_BOX_D / 2), vector3_create(POOL_BOX_W, POOL_BOX_H, POOL_BOX_D / 2));
+    render_draw_box(vector3_create(POOL_BOX_W / 2, -0.05f, 0), vector3_create(POOL_BOX_W / 2, 0.05f, POOL_BOX_D / 2), 0.20f, 0.24f, 0.34f);
+    pool_draw_box_edges(vector3_create(0, 0, -POOL_BOX_D / 2), vector3_create(POOL_BOX_W, POOL_BOX_H, POOL_BOX_D / 2), 0.45f, 0.55f, 0.75f);
 
     char line[64];
     line[0] = 0;

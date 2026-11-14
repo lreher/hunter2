@@ -23,12 +23,12 @@ f32 rand_f32(f32 min, f32 max) {
 
 // random direction, every direction equally likely.
 // picks points in the cube until one lands inside the unit sphere, so corners are not favored (cphiz normalized cube points)
-V3 rand_unit_v3(void) {
+Vector3 rand_unit_vector3(void) {
     for (;;) {
-        V3 v = v3_create(rand_f32(-1, 1), rand_f32(-1, 1), rand_f32(-1, 1));
-        real square_length = v3_square_magnitude(v);
+        Vector3 v = vector3_create(rand_f32(-1, 1), rand_f32(-1, 1), rand_f32(-1, 1));
+        real square_length = vector3_square_magnitude(v);
         if (square_length > 0.0001f && square_length <= 1) {
-            v3_multiply(&v, 1 / real_sqrt(square_length));
+            vector3_multiply(&v, 1 / real_sqrt(square_length));
             return v;
         }
     }

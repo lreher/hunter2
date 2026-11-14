@@ -35,7 +35,7 @@ static f32 bridge_drop_mass = 10;   // kg, for the next drop
 
 typedef struct {
     Particle particle;
-    V3 previous_position; // from the step before, for blending
+    Vector3 previous_position; // from the step before, for blending
     real radius;
     real reach; // how far it can move this step, for the contact margin
 } BridgeBody;
@@ -49,8 +49,8 @@ static i32 bridge_drop_next; // the slot the next drop goes into once all are in
 // to the bank at the ends) and a cable up to the beam
 static ForceGen bridge_gravity;
 static ForceGen bridge_to_prev[BRIDGE_N], bridge_to_next[BRIDGE_N], bridge_cables[BRIDGE_N];
-static V3 bridge_bank_left, bridge_bank_right; // where the end links are tied
-static V3 bridge_anchors[BRIDGE_N];             // cable tops on the beam
+static Vector3 bridge_bank_left, bridge_bank_right; // where the end links are tied
+static Vector3 bridge_anchors[BRIDGE_N];             // cable tops on the beam
 static ForceReg bridge_regs[BRIDGE_FORCES];
 static ForceRegistry bridge_forces = {bridge_regs, 0, BRIDGE_FORCES};
 
@@ -78,21 +78,21 @@ static void bridge_set_forces(void) {
 // the deck at rest length, centered on x = 0, no drops
 static void bridge_reset(void) {
     real span = (BRIDGE_N + 1) * BRIDGE_GAP; // bank to bank
-    bridge_bank_left = v3_create(-span / 2, BRIDGE_DECK, 0);
-    bridge_bank_right = v3_create(span / 2, BRIDGE_DECK, 0);
-    bridge_gravity = force_gravity(v3_create(0, -9.8f, 0));
+    bridge_bank_left = vector3_create(-span / 2, BRIDGE_DECK, 0);
+    bridge_bank_right = vector3_create(span / 2, BRIDGE_DECK, 0);
+    bridge_gravity = force_gravity(vector3_create(0, -9.8f, 0));
     force_registry_clear(&bridge_forces);
     for (i32 i = 0; i < BRIDGE_N; i++) {
         BridgeBody *body = &bridge_bodies[i];
         Particle *p = &body->particle;
-        p->position = v3_create(bridge_bank_left.x + (i + 1) * BRIDGE_GAP, BRIDGE_DECK, 0);
-        p->velocity = v3_zero();
-        p->acceleration = v3_zero();
-        p->force_accum = v3_zero();
+        p->position = vector3_create(bridge_bank_left.x + (i + 1) * BRIDGE_GAP, BRIDGE_DECK, 0);
+        p->velocity = vector3_zero();
+        p->acceleration = vector3_zero();
+        p->force_total = vector3_zero();
         particle_set_mass(p, BRIDGE_MASS);
         body->previous_position = p->position;
         body->radius = BRIDGE_RADIUS;
-        bridge_anchors[i] = v3_create(p->position.x, BRIDGE_DECK + BRIDGE_CABLE, 0);
+        bridge_anchors[i] = vector3_create(p->position.x, BRIDGE_DECK + BRIDGE_CABLE, 0);
     }
     bridge_set_forces();
     for (i32 i = 0; i < BRIDGE_N; i++) {
@@ -120,10 +120,10 @@ static void bridge_drop(void) {
     BridgeBody *body = &bridge_bodies[BRIDGE_N + slot];
     Particle *p = &body->particle;
     real reach = bridge_bank_right.x - BRIDGE_GAP;
-    p->position = v3_create(rand_f32(-reach, reach), BRIDGE_DECK + BRIDGE_CABLE - 0.5f, 0);
-    p->velocity = v3_zero();
-    p->acceleration = v3_zero();
-    p->force_accum = v3_zero();
+    p->position = vector3_create(rand_f32(-reach, reach), BRIDGE_DECK + BRIDGE_CABLE - 0.5f, 0);
+    p->velocity = vector3_zero();
+    p->acceleration = vector3_zero();
+    p->force_total = vector3_zero();
     p->damping = 1;
     particle_set_mass(p, bridge_drop_mass);
     body->previous_position = p->position;
@@ -147,14 +147,14 @@ static void bridge_update(void) {
     bridge_set_forces();
 }
 
-FORCE_INLINE void bridge_step(real dt) {
-    force_registry_update(&bridge_forces, dt);
+FORCE_INLINE void bridge_step(real time_step) {
+    force_registry_update(&bridge_forces, time_step);
     i32 alive = BRIDGE_N + bridge_drops;
     for (i32 i = 0; i < alive; i++) {
         BridgeBody *body = &bridge_bodies[i];
         body->previous_position = body->particle.position;
-        particle_integrate_velocity(&body->particle, dt);
-        body->reach = v3_magnitude(body->particle.velocity) * dt;
+        particle_apply_forces(&body->particle, time_step);
+        body->reach = vector3_magnitude(body->particle.velocity) * time_step;
     }
 
     // every pair that could touch this step, and the floor (y = 0). found in (i, j) order, so the list is sorted
@@ -168,14 +168,14 @@ FORCE_INLINE void bridge_step(real dt) {
         for (i32 j = i + 1; j < alive && count < BRIDGE_MAX_CONTACTS - 1; j++) {
             BridgeBody *b = &bridge_bodies[j];
             if (particle_contact_find_spheres(&list[count], &a->particle, a->radius, &b->particle, b->radius,
-                                              BRIDGE_BOUNCE, dt, a->reach + b->reach)) {
+                                              BRIDGE_BOUNCE, time_step, a->reach + b->reach)) {
                 list[count].id_a = i;
                 list[count].id_b = j;
                 count++;
             }
         }
-        if (particle_contact_find_plane(&list[count], &a->particle, a->radius, v3_create(0, 1, 0), 0,
-                                        BRIDGE_BOUNCE, BRIDGE_FLOOR_FRICTION, dt, a->reach)) {
+        if (particle_contact_find_plane(&list[count], &a->particle, a->radius, vector3_create(0, 1, 0), 0,
+                                        BRIDGE_BOUNCE, BRIDGE_FLOOR_FRICTION, time_step, a->reach)) {
             list[count].id_a = i;
             list[count].id_b = BRIDGE_BODIES;
             count++;
@@ -187,13 +187,13 @@ FORCE_INLINE void bridge_step(real dt) {
 
     particle_contacts_warm(list, count, bridge_contact_lists[before], bridge_contact_counts[before]);
     particle_contacts_solve(list, count, BRIDGE_SOLVER_PASSES);
-    for (i32 i = 0; i < alive; i++) particle_integrate_position(&bridge_bodies[i].particle, dt);
+    for (i32 i = 0; i < alive; i++) particle_move(&bridge_bodies[i].particle, time_step);
     particle_contacts_bounce(list, count, BRIDGE_SOLVER_PASSES);
 }
 
 // white at rest length, red stretched, blue compressed (full color at 25%). a slack bungee is grey: it does nothing
-static void bridge_draw_spring(V3 from, V3 to, real rest, i32 pull_only) {
-    real length = v3_magnitude(v3_subtracted(to, from));
+static void bridge_draw_spring(Vector3 from, Vector3 to, real rest, i32 pull_only) {
+    real length = vector3_magnitude(vector3_subtracted(to, from));
     real strain = (length - rest) / rest;
     if (pull_only && strain <= 0) {
         render_draw_line(from, to, 0.4f, 0.4f, 0.4f);
@@ -207,9 +207,9 @@ static void bridge_draw_spring(V3 from, V3 to, real rest, i32 pull_only) {
 
 FORCE_INLINE void bridge_draw(f32 alpha, f32 seconds, f32 hud_top) {
     (void)seconds;
-    V3 at[BRIDGE_BODIES];
+    Vector3 at[BRIDGE_BODIES];
     i32 alive = BRIDGE_N + bridge_drops;
-    for (i32 i = 0; i < alive; i++) at[i] = v3_lerp(bridge_bodies[i].previous_position, bridge_bodies[i].particle.position, alpha);
+    for (i32 i = 0; i < alive; i++) at[i] = vector3_lerp(bridge_bodies[i].previous_position, bridge_bodies[i].particle.position, alpha);
 
     for (i32 i = 0; i < BRIDGE_N; i++) render_draw_sphere(at[i], BRIDGE_RADIUS, 0.75f, 0.55f, 0.35f);
     for (i32 i = BRIDGE_N; i < alive; i++) render_draw_sphere(at[i], BRIDGE_DROP_RADIUS, 0.45f, 0.6f, 0.9f);
@@ -223,16 +223,16 @@ FORCE_INLINE void bridge_draw(f32 alpha, f32 seconds, f32 hud_top) {
 
     // the frame: beam, posts on the banks, banks, floor
     f32 frame = 0.5f;
-    V3 beam_left = v3_create(bridge_bank_left.x, BRIDGE_DECK + BRIDGE_CABLE, 0);
-    V3 beam_right = v3_create(bridge_bank_right.x, BRIDGE_DECK + BRIDGE_CABLE, 0);
+    Vector3 beam_left = vector3_create(bridge_bank_left.x, BRIDGE_DECK + BRIDGE_CABLE, 0);
+    Vector3 beam_right = vector3_create(bridge_bank_right.x, BRIDGE_DECK + BRIDGE_CABLE, 0);
     render_draw_line(beam_left, beam_right, frame, frame, frame);
     render_draw_line(bridge_bank_left, beam_left, frame, frame, frame);
     render_draw_line(bridge_bank_right, beam_right, frame, frame, frame);
-    V3 bank_half = v3_create(1.5f, BRIDGE_DECK / 2, 1.5f);
-    render_draw_box(v3_create(bridge_bank_left.x - bank_half.x, BRIDGE_DECK / 2, 0), bank_half, 0.35f, 0.33f, 0.30f);
-    render_draw_box(v3_create(bridge_bank_right.x + bank_half.x, BRIDGE_DECK / 2, 0), bank_half, 0.35f, 0.33f, 0.30f);
-    render_draw_box(v3_create(0, -0.05f, 0), v3_create(12, 0.05f, 5), 0.20f, 0.24f, 0.34f); // floor: a thin slab just under y = 0
-    render_set_shadow_area(v3_create(-12, -0.1f, -5), v3_create(12, BRIDGE_DECK + BRIDGE_CABLE, 5));
+    Vector3 bank_half = vector3_create(1.5f, BRIDGE_DECK / 2, 1.5f);
+    render_draw_box(vector3_create(bridge_bank_left.x - bank_half.x, BRIDGE_DECK / 2, 0), bank_half, 0.35f, 0.33f, 0.30f);
+    render_draw_box(vector3_create(bridge_bank_right.x + bank_half.x, BRIDGE_DECK / 2, 0), bank_half, 0.35f, 0.33f, 0.30f);
+    render_draw_box(vector3_create(0, -0.05f, 0), vector3_create(12, 0.05f, 5), 0.20f, 0.24f, 0.34f); // floor: a thin slab just under y = 0
+    render_set_shadow_area(vector3_create(-12, -0.1f, -5), vector3_create(12, BRIDGE_DECK + BRIDGE_CABLE, 5));
 
     char line[64];
     line[0] = 0;

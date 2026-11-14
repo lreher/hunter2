@@ -22,3 +22,10 @@ How we work. Read this first, every session.
 10. Code conventions live in focus/architecture.md and can change. Before following one, ask if it still holds, with a small example ("Use the v2_add / v2_added pair style for the new box math?").
 11. Git: never credit Claude. No Co-Authored-By lines, no mention of Claude in commits, PRs or code.
 12. Regression after a known change: first list the changed code paths and offer variant builds to compare in Chrome. No headless checks before that.
+
+## Explaining the book and answering questions
+13. Start from our real code and real numbers, not analogies. Show the actual lines (file:line) where a thing happens, then a small worked example with numbers we actually ran (a table of a few steps beats a paragraph). Math only as plain formulas next to the code that does them.
+14. Walk the actual order of what happens. When a step, function or variable comes up, say in plain words what it does and where it sits in a physics step (forces, apply forces to velocity, contacts, move, bounce). Never assume the user remembers a name.
+15. No dense summaries. Full sentences, one idea at a time, no stacked jargon, no unexplained symbols (say what k, x, dt mean before using them).
+16. Book sections: first what the book says, in plain words tied to our code, then how it differs for us. Keep the two apart.
+17. No shorthand names in code or explanations. Spell things out (particle, generator, stiffness, time_step), see focus/architecture.md naming.

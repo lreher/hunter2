@@ -1,85 +1,85 @@
 #include "base/base.h"
 
-V3 v3_create(real x, real y, real z) {
-    V3 v = {x, y, z};
+Vector3 vector3_create(real x, real y, real z) {
+    Vector3 v = {x, y, z};
     return v;
 }
 
-V3 v3_zero(void) {
-    return v3_create(0, 0, 0);
+Vector3 vector3_zero(void) {
+    return vector3_create(0, 0, 0);
 }
 
-void v3_add(V3 *target, V3 v) {
+void vector3_add(Vector3 *target, Vector3 v) {
     target->x += v.x;
     target->y += v.y;
     target->z += v.z;
 }
 
-V3 v3_added(V3 a, V3 b) {
-    return v3_create(a.x + b.x, a.y + b.y, a.z + b.z);
+Vector3 vector3_added(Vector3 a, Vector3 b) {
+    return vector3_create(a.x + b.x, a.y + b.y, a.z + b.z);
 }
 
-void v3_subtract(V3 *target, V3 v) {
+void vector3_subtract(Vector3 *target, Vector3 v) {
     target->x -= v.x;
     target->y -= v.y;
     target->z -= v.z;
 }
 
-V3 v3_subtracted(V3 a, V3 b) {
-    return v3_create(a.x - b.x, a.y - b.y, a.z - b.z);
+Vector3 vector3_subtracted(Vector3 a, Vector3 b) {
+    return vector3_create(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
-void v3_multiply(V3 *v, real scale) {
+void vector3_multiply(Vector3 *v, real scale) {
     v->x *= scale;
     v->y *= scale;
     v->z *= scale;
 }
 
-V3 v3_multiplied(V3 v, real scale) {
-    return v3_create(v.x * scale, v.y * scale, v.z * scale);
+Vector3 vector3_multiplied(Vector3 v, real scale) {
+    return vector3_create(v.x * scale, v.y * scale, v.z * scale);
 }
 
-void v3_add_scaled(V3 *target, V3 v, real scale) {
+void vector3_add_scaled(Vector3 *target, Vector3 v, real scale) {
     target->x += v.x * scale;
     target->y += v.y * scale;
     target->z += v.z * scale;
 }
 
-void v3_invert(V3 *v) {
+void vector3_invert(Vector3 *v) {
     v->x = -v->x;
     v->y = -v->y;
     v->z = -v->z;
 }
 
-real v3_scalar_product(V3 a, V3 b) {
+real vector3_scalar_product(Vector3 a, Vector3 b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
-V3 v3_vector_product(V3 a, V3 b) {
-    return v3_create(a.y * b.z - a.z * b.y,
+Vector3 vector3_vector_product(Vector3 a, Vector3 b) {
+    return vector3_create(a.y * b.z - a.z * b.y,
                      a.z * b.x - a.x * b.z,
                      a.x * b.y - a.y * b.x);
 }
 
-V3 v3_component_product(V3 a, V3 b) {
-    return v3_create(a.x * b.x, a.y * b.y, a.z * b.z);
+Vector3 vector3_component_product(Vector3 a, Vector3 b) {
+    return vector3_create(a.x * b.x, a.y * b.y, a.z * b.z);
 }
 
-real v3_square_magnitude(V3 v) {
+real vector3_square_magnitude(Vector3 v) {
     return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
-real v3_magnitude(V3 v) {
-    return real_sqrt(v3_square_magnitude(v));
+real vector3_magnitude(Vector3 v) {
+    return real_sqrt(vector3_square_magnitude(v));
 }
 
-void v3_normalize(V3 *v) {
-    real length = v3_magnitude(*v);
-    if (length > 0) v3_multiply(v, 1 / length);
+void vector3_normalize(Vector3 *v) {
+    real length = vector3_magnitude(*v);
+    if (length > 0) vector3_multiply(v, 1 / length);
 }
 
-V3 v3_lerp(V3 a, V3 b, real t) {
-    return v3_create(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+Vector3 vector3_lerp(Vector3 a, Vector3 b, real t) {
+    return vector3_create(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
 }
 
 // Taylor series up to x^11, after folding x into [-pi/2, pi/2]. Error there is under 1e-7.
@@ -139,18 +139,18 @@ M4 m4_orthographic(f32 left, f32 right, f32 bottom, f32 top, f32 near, f32 far) 
     return r;
 }
 
-V3 m4_transform_point(M4 m, V3 p) {
+Vector3 m4_transform_point(M4 m, Vector3 p) {
     f32 out[4];
     for (i32 row = 0; row < 4; row++) out[row] = m.m[row] * p.x + m.m[4 + row] * p.y + m.m[8 + row] * p.z + m.m[12 + row];
-    return v3_create(out[0] / out[3], out[1] / out[3], out[2] / out[3]);
+    return vector3_create(out[0] / out[3], out[1] / out[3], out[2] / out[3]);
 }
 
-M4 m4_look_at(V3 eye, V3 target, V3 up) {
-    V3 forward = v3_subtracted(target, eye);
-    v3_normalize(&forward);
-    V3 right = v3_vector_product(forward, up);
-    v3_normalize(&right);
-    V3 camera_up = v3_vector_product(right, forward);
+M4 m4_look_at(Vector3 eye, Vector3 target, Vector3 up) {
+    Vector3 forward = vector3_subtracted(target, eye);
+    vector3_normalize(&forward);
+    Vector3 right = vector3_vector_product(forward, up);
+    vector3_normalize(&right);
+    Vector3 camera_up = vector3_vector_product(right, forward);
 
     // rows are the camera axes, so this turns world directions into camera directions
     M4 r = m4_identity();
@@ -163,8 +163,8 @@ M4 m4_look_at(V3 eye, V3 target, V3 up) {
     r.m[2] = -forward.x;
     r.m[6] = -forward.y;
     r.m[10] = -forward.z;
-    r.m[12] = -v3_scalar_product(right, eye);
-    r.m[13] = -v3_scalar_product(camera_up, eye);
-    r.m[14] = v3_scalar_product(forward, eye);
+    r.m[12] = -vector3_scalar_product(right, eye);
+    r.m[13] = -vector3_scalar_product(camera_up, eye);
+    r.m[14] = vector3_scalar_product(forward, eye);
     return r;
 }

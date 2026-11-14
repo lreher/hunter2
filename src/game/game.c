@@ -18,7 +18,7 @@
 #define CAMERA_FOV (F32_PI / 3) // 60 degrees vertical
 
 typedef struct {
-    V3 position;
+    Vector3 position;
     f32 yaw;   // 0 looks down -z, positive turns right
     f32 pitch; // 0 is level, positive looks up
 } Camera;
@@ -67,9 +67,9 @@ void game_init(void) {
     game_start_demo(game_demo_picked);
 }
 
-static V3 game_camera_forward(void) {
+static Vector3 game_camera_forward(void) {
     f32 c = f32_cos(game_camera.pitch);
-    return v3_create(f32_sin(game_camera.yaw) * c, f32_sin(game_camera.pitch), -f32_cos(game_camera.yaw) * c);
+    return vector3_create(f32_sin(game_camera.yaw) * c, f32_sin(game_camera.pitch), -f32_cos(game_camera.yaw) * c);
 }
 
 // the camera only moves while the mouse is locked (click the canvas), so the panel can be used without it drifting
@@ -81,26 +81,26 @@ static void game_update_camera(f32 seconds) {
     if (game_camera.pitch > CAMERA_MAX_PITCH) game_camera.pitch = CAMERA_MAX_PITCH;
     if (game_camera.pitch < -CAMERA_MAX_PITCH) game_camera.pitch = -CAMERA_MAX_PITCH;
 
-    V3 forward = game_camera_forward();
-    V3 right = v3_create(f32_cos(game_camera.yaw), 0, f32_sin(game_camera.yaw));
-    V3 move = v3_zero();
-    if (plat_key_down(KEY_W)) v3_add(&move, forward);
-    if (plat_key_down(KEY_S)) v3_subtract(&move, forward);
-    if (plat_key_down(KEY_D)) v3_add(&move, right);
-    if (plat_key_down(KEY_A)) v3_subtract(&move, right);
+    Vector3 forward = game_camera_forward();
+    Vector3 right = vector3_create(f32_cos(game_camera.yaw), 0, f32_sin(game_camera.yaw));
+    Vector3 move = vector3_zero();
+    if (plat_key_down(KEY_W)) vector3_add(&move, forward);
+    if (plat_key_down(KEY_S)) vector3_subtract(&move, forward);
+    if (plat_key_down(KEY_D)) vector3_add(&move, right);
+    if (plat_key_down(KEY_A)) vector3_subtract(&move, right);
     if (plat_key_down(KEY_E)) move.y += 1;
     if (plat_key_down(KEY_Q)) move.y -= 1;
-    v3_normalize(&move); // diagonals are not faster
+    vector3_normalize(&move); // diagonals are not faster
     f32 speed = plat_key_down(KEY_SHIFT) ? CAMERA_SPEED * CAMERA_FAST : CAMERA_SPEED;
-    v3_add_scaled(&game_camera.position, move, speed * seconds);
+    vector3_add_scaled(&game_camera.position, move, speed * seconds);
 }
 
 // alpha: how far we are between the last step (0) and the next one (1)
 FORCE_INLINE void game_draw(f32 alpha, f32 seconds) {
     f32 aspect = (f32)plat_screen_width() / (f32)plat_screen_height();
     M4 projection = m4_perspective(CAMERA_FOV, aspect, 0.05f, 200.0f);
-    V3 eye = game_camera.position;
-    M4 view = m4_look_at(eye, v3_added(eye, game_camera_forward()), v3_create(0, 1, 0));
+    Vector3 eye = game_camera.position;
+    M4 view = m4_look_at(eye, vector3_added(eye, game_camera_forward()), vector3_create(0, 1, 0));
 
     render_begin(0.02f, 0.02f, 0.04f);
     render_set_camera(m4_multiplied(projection, view), eye);

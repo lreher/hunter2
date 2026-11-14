@@ -27,7 +27,7 @@ static f32 balls_spawned_count, balls_spawned_min, balls_spawned_max; // what th
 
 typedef struct {
     Particle particle;
-    V3 previous_position; // from the step before, for blending
+    Vector3 previous_position; // from the step before, for blending
     real radius;
     real reach; // how far it can move this step, for the contact margin
     f32 r, g, b;
@@ -47,7 +47,7 @@ static const f32 balls_palette[6][3] = {
 static i32 balls_show_overlaps;
 
 // the box as 6 planes, normals pointing inside (particle_contact_find_plane): floor, ceiling, left, right, back, front
-static const V3 balls_wall_normals[6] = {{0, 1, 0}, {0, -1, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}};
+static const Vector3 balls_wall_normals[6] = {{0, 1, 0}, {0, -1, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}};
 static const real balls_wall_offsets[6] = {0, -BALLS_BOX_H, 0, -BALLS_BOX_W, -BALLS_BOX_D / 2, -BALLS_BOX_D / 2};
 
 // this step's contacts and last step's (for the warm start), swapped every step
@@ -61,10 +61,10 @@ static i32 balls_stats_overlap_frames; // drawn frames where some pair overlaps 
 static i32 balls_hud_overlap_frames;   // last second's, for the HUD
 
 // true if a ball of this radius at this position would overlap one of the first `placed` balls
-static i32 balls_overlaps_placed(V3 position, real radius, i32 placed) {
+static i32 balls_overlaps_placed(Vector3 position, real radius, i32 placed) {
     for (i32 i = 0; i < placed; i++) {
         real gap = radius + balls_list[i].radius;
-        if (v3_square_magnitude(v3_subtracted(position, balls_list[i].particle.position)) < gap * gap) return 1;
+        if (vector3_square_magnitude(vector3_subtracted(position, balls_list[i].particle.position)) < gap * gap) return 1;
     }
     return 0;
 }
@@ -85,12 +85,12 @@ static void balls_spawn(void) {
 
         Particle *p = &ball->particle;
         for (i32 attempt = 0; attempt < 100; attempt++) { // keep the last try if the box is too full
-            p->position = v3_create(rand_f32(ball->radius, BALLS_BOX_W - ball->radius), rand_f32(2.0f, BALLS_BOX_H - ball->radius),
+            p->position = vector3_create(rand_f32(ball->radius, BALLS_BOX_W - ball->radius), rand_f32(2.0f, BALLS_BOX_H - ball->radius),
                                     rand_f32(-BALLS_BOX_D / 2 + ball->radius, BALLS_BOX_D / 2 - ball->radius));
             if (!balls_overlaps_placed(p->position, ball->radius, i)) break;
         }
-        p->velocity = v3_create(rand_f32(-6.0f, 6.0f), rand_f32(-3.0f, 3.0f), rand_f32(-6.0f, 6.0f));
-        p->acceleration = v3_create(0, -9.8f, 0);
+        p->velocity = vector3_create(rand_f32(-6.0f, 6.0f), rand_f32(-3.0f, 3.0f), rand_f32(-6.0f, 6.0f));
+        p->acceleration = vector3_create(0, -9.8f, 0);
         p->damping = 1.0f;
         particle_set_mass(p, ball->radius * ball->radius * 10.0f);
 
@@ -126,12 +126,12 @@ static void balls_update(void) {
     }
 }
 
-FORCE_INLINE void balls_step(real dt) {
+FORCE_INLINE void balls_step(real time_step) {
     for (i32 i = 0; i < balls_alive; i++) {
         Ball *ball = &balls_list[i];
         ball->previous_position = ball->particle.position;
-        particle_integrate_velocity(&ball->particle, dt);
-        ball->reach = v3_magnitude(ball->particle.velocity) * dt;
+        particle_apply_forces(&ball->particle, time_step);
+        ball->reach = vector3_magnitude(ball->particle.velocity) * time_step;
     }
 
     // every pair and wall a ball could touch this step. ids (i, j) for pairs, then (i, BALLS_MAX + wall),
@@ -145,7 +145,7 @@ FORCE_INLINE void balls_step(real dt) {
         for (i32 j = i + 1; j < balls_alive && count < BALLS_MAX_CONTACTS - 6; j++) {
             Ball *b = &balls_list[j];
             if (particle_contact_find_spheres(&list[count], &a->particle, a->radius, &b->particle, b->radius,
-                                              balls_ball_bounce, dt, a->reach + b->reach)) {
+                                              balls_ball_bounce, time_step, a->reach + b->reach)) {
                 list[count].id_a = i;
                 list[count].id_b = j;
                 count++;
@@ -153,7 +153,7 @@ FORCE_INLINE void balls_step(real dt) {
         }
         for (i32 wall = 0; wall < 6; wall++) {
             if (particle_contact_find_plane(&list[count], &a->particle, a->radius, balls_wall_normals[wall],
-                                            balls_wall_offsets[wall], balls_wall_bounce, BALLS_WALL_FRICTION, dt, a->reach)) {
+                                            balls_wall_offsets[wall], balls_wall_bounce, BALLS_WALL_FRICTION, time_step, a->reach)) {
                 list[count].id_a = i;
                 list[count].id_b = BALLS_MAX + wall;
                 count++;
@@ -166,34 +166,34 @@ FORCE_INLINE void balls_step(real dt) {
 
     particle_contacts_warm(list, count, balls_contact_lists[before], balls_contact_counts[before]);
     particle_contacts_solve(list, count, BALLS_SOLVER_PASSES);
-    for (i32 i = 0; i < balls_alive; i++) particle_integrate_position(&balls_list[i].particle, dt);
+    for (i32 i = 0; i < balls_alive; i++) particle_move(&balls_list[i].particle, time_step);
     particle_contacts_bounce(list, count, BALLS_SOLVER_PASSES);
 }
 
 // the 12 edges of the box
-static void balls_draw_box_edges(V3 lo, V3 hi, f32 r, f32 g, f32 b) {
+static void balls_draw_box_edges(Vector3 lo, Vector3 hi, f32 r, f32 g, f32 b) {
     for (i32 i = 0; i < 4; i++) {
         f32 u = (i & 1) ? hi.y : lo.y;
         f32 v = (i & 2) ? hi.z : lo.z;
-        render_draw_line(v3_create(lo.x, u, v), v3_create(hi.x, u, v), r, g, b); // along x
+        render_draw_line(vector3_create(lo.x, u, v), vector3_create(hi.x, u, v), r, g, b); // along x
         u = (i & 1) ? hi.x : lo.x;
-        render_draw_line(v3_create(u, lo.y, v), v3_create(u, hi.y, v), r, g, b); // along y
+        render_draw_line(vector3_create(u, lo.y, v), vector3_create(u, hi.y, v), r, g, b); // along y
         v = (i & 2) ? hi.y : lo.y;
-        render_draw_line(v3_create(u, v, lo.z), v3_create(u, v, hi.z), r, g, b); // along z
+        render_draw_line(vector3_create(u, v, lo.z), vector3_create(u, v, hi.z), r, g, b); // along z
     }
 }
 
 FORCE_INLINE void balls_draw(f32 alpha, f32 seconds, f32 hud_top) {
-    render_set_shadow_area(v3_create(0, -0.1f, -BALLS_BOX_D / 2), v3_create(BALLS_BOX_W, BALLS_BOX_H, BALLS_BOX_D / 2)); // the box, floor slab included
+    render_set_shadow_area(vector3_create(0, -0.1f, -BALLS_BOX_D / 2), vector3_create(BALLS_BOX_W, BALLS_BOX_H, BALLS_BOX_D / 2)); // the box, floor slab included
 
     // floor: a thin slab just under y = 0
-    render_draw_box(v3_create(BALLS_BOX_W / 2, -0.05f, 0), v3_create(BALLS_BOX_W / 2, 0.05f, BALLS_BOX_D / 2), 0.20f, 0.24f, 0.34f);
-    balls_draw_box_edges(v3_create(0, 0, -BALLS_BOX_D / 2), v3_create(BALLS_BOX_W, BALLS_BOX_H, BALLS_BOX_D / 2), 0.45f, 0.55f, 0.75f);
+    render_draw_box(vector3_create(BALLS_BOX_W / 2, -0.05f, 0), vector3_create(BALLS_BOX_W / 2, 0.05f, BALLS_BOX_D / 2), 0.20f, 0.24f, 0.34f);
+    balls_draw_box_edges(vector3_create(0, 0, -BALLS_BOX_D / 2), vector3_create(BALLS_BOX_W, BALLS_BOX_H, BALLS_BOX_D / 2), 0.45f, 0.55f, 0.75f);
 
-    static V3 positions[BALLS_MAX];
+    static Vector3 positions[BALLS_MAX];
     for (i32 i = 0; i < balls_alive; i++) {
         Ball *ball = &balls_list[i];
-        positions[i] = v3_lerp(ball->previous_position, ball->particle.position, alpha);
+        positions[i] = vector3_lerp(ball->previous_position, ball->particle.position, alpha);
     }
 
     // check what is drawn, not the physics state: blending between steps can overlap even when the steps do not
@@ -201,7 +201,7 @@ FORCE_INLINE void balls_draw(f32 alpha, f32 seconds, f32 hud_top) {
     for (i32 i = 0; i < balls_alive; i++) {
         for (i32 j = i + 1; j < balls_alive; j++) {
             real gap = balls_list[i].radius + balls_list[j].radius - BALLS_OVERLAP_LIMIT;
-            if (v3_square_magnitude(v3_subtracted(positions[i], positions[j])) >= gap * gap) continue;
+            if (vector3_square_magnitude(vector3_subtracted(positions[i], positions[j])) >= gap * gap) continue;
             balls_list[i].overlap_glow = BALLS_OVERLAP_GLOW;
             balls_list[j].overlap_glow = BALLS_OVERLAP_GLOW;
             overlapped = 1;

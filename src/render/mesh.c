@@ -98,8 +98,8 @@ static GpuHandle mesh_line_bind_group;
 // of each object, well behind its lit side, so lit surfaces do not shadow themselves.
 #define MESH_SHADOW_SIZE 2048   // texels per side
 #define MESH_SHADOW_BIAS 0.005f // m, pushes the depth test a little toward the sun
-static V3 mesh_shadow_min = {-10, -1, -10}; // area that gets sun shadows, see render_set_shadow_area
-static V3 mesh_shadow_max = {10, 10, 10};
+static Vector3 mesh_shadow_min = {-10, -1, -10}; // area that gets sun shadows, see render_set_shadow_area
+static Vector3 mesh_shadow_max = {10, 10, 10};
 static GpuHandle mesh_shadow_map;
 static GpuHandle mesh_shadow_pipeline;
 static GpuHandle mesh_shadow_bind_group;
@@ -117,30 +117,30 @@ static i32 mesh_grid_used; // u32s of mesh_grid filled this frame
 static GpuHandle mesh_grid_buffer;
 
 // adds a triangle facing away from the mesh center (counter clockwise seen from outside, so culling keeps it)
-static void mesh_push_triangle(MeshShape *shape, V3 a, V3 b, V3 c, V3 outward, i32 smooth) {
-    V3 face = v3_vector_product(v3_subtracted(b, a), v3_subtracted(c, a));
-    if (v3_scalar_product(face, outward) < 0) {
-        V3 t = b;
+static void mesh_push_triangle(MeshShape *shape, Vector3 a, Vector3 b, Vector3 c, Vector3 outward, i32 smooth) {
+    Vector3 face = vector3_vector_product(vector3_subtracted(b, a), vector3_subtracted(c, a));
+    if (vector3_scalar_product(face, outward) < 0) {
+        Vector3 t = b;
         b = c;
         c = t;
     }
-    V3 corners[3] = {a, b, c};
+    Vector3 corners[3] = {a, b, c};
     for (i32 i = 0; i < 3; i++) {
-        V3 n = smooth ? corners[i] : outward; // a unit sphere's normal is its position
+        Vector3 n = smooth ? corners[i] : outward; // a unit sphere's normal is its position
         shape->vertices[shape->vertex_count++] = (MeshVertex){corners[i].x, corners[i].y, corners[i].z, n.x, n.y, n.z};
     }
 }
 
-static V3 mesh_midpoint_on_sphere(V3 a, V3 b) {
-    V3 m = v3_added(a, b);
-    v3_normalize(&m);
+static Vector3 mesh_midpoint_on_sphere(Vector3 a, Vector3 b) {
+    Vector3 m = vector3_added(a, b);
+    vector3_normalize(&m);
     return m;
 }
 
 // icosahedron, then split every triangle into 4 and push the new corners out to the sphere
 static void mesh_build_sphere(MeshShape *shape, i32 subdivisions) {
     const f32 t = 1.618034f; // golden ratio
-    V3 corners[12] = {
+    Vector3 corners[12] = {
         {-1, t, 0}, {1, t, 0}, {-1, -t, 0}, {1, -t, 0},
         {0, -1, t}, {0, 1, t}, {0, -1, -t}, {0, 1, -t},
         {t, 0, -1}, {t, 0, 1}, {-t, 0, -1}, {-t, 0, 1},
@@ -151,8 +151,8 @@ static void mesh_build_sphere(MeshShape *shape, i32 subdivisions) {
         {3, 9, 4}, {3, 4, 2}, {3, 2, 6}, {3, 6, 8}, {3, 8, 9},
         {4, 9, 5}, {2, 4, 11}, {6, 2, 10}, {8, 6, 7}, {9, 8, 1},
     };
-    static V3 triangles[2][MESH_SPHERE_TRIANGLES(MESH_SPHERE_LODS - 1)][3]; // ping pong between two lists
-    for (i32 i = 0; i < 12; i++) v3_normalize(&corners[i]);
+    static Vector3 triangles[2][MESH_SPHERE_TRIANGLES(MESH_SPHERE_LODS - 1)][3]; // ping pong between two lists
+    for (i32 i = 0; i < 12; i++) vector3_normalize(&corners[i]);
     for (i32 f = 0; f < 20; f++) {
         for (i32 k = 0; k < 3; k++) triangles[0][f][k] = corners[faces[f][k]];
     }
@@ -161,9 +161,9 @@ static void mesh_build_sphere(MeshShape *shape, i32 subdivisions) {
     for (i32 level = 0; level < subdivisions; level++) {
         i32 to = 1 - from;
         for (i32 i = 0; i < count; i++) {
-            V3 a = triangles[from][i][0], b = triangles[from][i][1], c = triangles[from][i][2];
-            V3 ab = mesh_midpoint_on_sphere(a, b), bc = mesh_midpoint_on_sphere(b, c), ca = mesh_midpoint_on_sphere(c, a);
-            V3 *out = triangles[to][i * 4];
+            Vector3 a = triangles[from][i][0], b = triangles[from][i][1], c = triangles[from][i][2];
+            Vector3 ab = mesh_midpoint_on_sphere(a, b), bc = mesh_midpoint_on_sphere(b, c), ca = mesh_midpoint_on_sphere(c, a);
+            Vector3 *out = triangles[to][i * 4];
             out[0] = a, out[1] = ab, out[2] = ca;
             out[3] = ab, out[4] = b, out[5] = bc;
             out[6] = ca, out[7] = bc, out[8] = c;
@@ -174,8 +174,8 @@ static void mesh_build_sphere(MeshShape *shape, i32 subdivisions) {
     }
 
     for (i32 i = 0; i < count; i++) {
-        V3 *tri = triangles[from][i];
-        mesh_push_triangle(shape, tri[0], tri[1], tri[2], v3_added(v3_added(tri[0], tri[1]), tri[2]), 1);
+        Vector3 *tri = triangles[from][i];
+        mesh_push_triangle(shape, tri[0], tri[1], tri[2], vector3_added(vector3_added(tri[0], tri[1]), tri[2]), 1);
     }
 }
 
@@ -187,12 +187,12 @@ static void mesh_build_box(void) {
             n[axis] = (f32)sign;
             u[(axis + 1) % 3] = 1;
             v[(axis + 2) % 3] = 1;
-            V3 normal = {n[0], n[1], n[2]};
-            V3 corner[4];
+            Vector3 normal = {n[0], n[1], n[2]};
+            Vector3 corner[4];
             for (i32 k = 0; k < 4; k++) {
                 f32 su = (k == 1 || k == 2) ? 1.0f : -1.0f;
                 f32 sv = (k >= 2) ? 1.0f : -1.0f;
-                corner[k] = v3_create(n[0] + su * u[0] + sv * v[0], n[1] + su * u[1] + sv * v[1], n[2] + su * u[2] + sv * v[2]);
+                corner[k] = vector3_create(n[0] + su * u[0] + sv * v[0], n[1] + su * u[1] + sv * v[1], n[2] + su * u[2] + sv * v[2]);
             }
             mesh_push_triangle(&mesh_box, corner[0], corner[1], corner[2], normal, 0);
             mesh_push_triangle(&mesh_box, corner[0], corner[2], corner[3], normal, 0);
@@ -297,10 +297,10 @@ static void render_mesh_begin(void) {
     mesh_line_count = 0;
 }
 
-void render_set_camera(M4 view_projection, V3 eye) {
+void render_set_camera(M4 view_projection, Vector3 eye) {
     for (i32 i = 0; i < 16; i++) mesh_scene.view_proj[i] = view_projection.m[i];
-    V3 light = v3_create(0.4f, 1.0f, 0.3f); // up, a bit right and front
-    v3_normalize(&light);
+    Vector3 light = vector3_create(0.4f, 1.0f, 0.3f); // up, a bit right and front
+    vector3_normalize(&light);
     mesh_scene.light[0] = light.x;
     mesh_scene.light[1] = light.y;
     mesh_scene.light[2] = light.z;
@@ -314,12 +314,12 @@ void render_set_camera(M4 view_projection, V3 eye) {
     mesh_lod_scale = real_sqrt(m[1] * m[1] + m[5] * m[5] + m[9] * m[9]) * (f32)plat_screen_height() / 2;
 }
 
-void render_set_shadow_area(V3 min, V3 max) {
+void render_set_shadow_area(Vector3 min, Vector3 max) {
     mesh_shadow_min = min;
     mesh_shadow_max = max;
 }
 
-static MeshInstance mesh_instance(V3 center, V3 half_size, f32 r, f32 g, f32 b) {
+static MeshInstance mesh_instance(Vector3 center, Vector3 half_size, f32 r, f32 g, f32 b) {
     return (MeshInstance){
         center.x, center.y, center.z, 0,
         half_size.x, half_size.y, half_size.z, 0,
@@ -332,7 +332,7 @@ void render_add_photo_picker(const char *name) {
     plat_ui_image(name, mesh_photo);
 }
 
-static void mesh_add_sphere(V3 center, f32 radius, f32 r, f32 g, f32 b, f32 photo) {
+static void mesh_add_sphere(Vector3 center, f32 radius, f32 r, f32 g, f32 b, f32 photo) {
     if (mesh_sphere_count >= MESH_MAX_INSTANCES) return;
     // distance in front of the camera (clip w). behind the camera only the shadow is seen, the same distance away
     f32 *m = mesh_scene.view_proj;
@@ -345,25 +345,25 @@ static void mesh_add_sphere(V3 center, f32 radius, f32 r, f32 g, f32 b, f32 phot
         while (level < MESH_SPHERE_LODS - 1 && pixels > mesh_sphere_lod_max_pixels[level]) level++;
     }
     mesh_sphere_levels[mesh_sphere_count] = (u8)level;
-    MeshInstance instance = mesh_instance(center, v3_create(radius, radius, radius), r, g, b);
+    MeshInstance instance = mesh_instance(center, vector3_create(radius, radius, radius), r, g, b);
     instance.photo = photo;
     mesh_sphere_instances[mesh_sphere_count++] = instance;
 }
 
-void render_draw_sphere(V3 center, f32 radius, f32 r, f32 g, f32 b) {
+void render_draw_sphere(Vector3 center, f32 radius, f32 r, f32 g, f32 b) {
     mesh_add_sphere(center, radius, r, g, b, 0);
 }
 
-void render_draw_sphere_photo(V3 center, f32 radius, f32 r, f32 g, f32 b) {
+void render_draw_sphere_photo(Vector3 center, f32 radius, f32 r, f32 g, f32 b) {
     mesh_add_sphere(center, radius, r, g, b, 1);
 }
 
-void render_draw_box(V3 center, V3 half_size, f32 r, f32 g, f32 b) {
+void render_draw_box(Vector3 center, Vector3 half_size, f32 r, f32 g, f32 b) {
     if (mesh_box_count >= MESH_MAX_INSTANCES) return;
     mesh_box_instances[mesh_box_count++] = mesh_instance(center, half_size, r, g, b);
 }
 
-void render_draw_line(V3 from, V3 to, f32 r, f32 g, f32 b) {
+void render_draw_line(Vector3 from, Vector3 to, f32 r, f32 g, f32 b) {
     if (mesh_line_count >= MESH_MAX_LINES) return;
     mesh_lines[mesh_line_count * 2] = (LineVertex){from.x, from.y, from.z, r, g, b};
     mesh_lines[mesh_line_count * 2 + 1] = (LineVertex){to.x, to.y, to.z, r, g, b};
@@ -468,16 +468,16 @@ static void mesh_build_contact_grid(void) {
 
 // the sun's view: a box along the light, fitted around the shadow area. shadow map texels are spread over it
 static void mesh_fit_shadow(void) {
-    V3 min = mesh_shadow_min, max = mesh_shadow_max;
-    V3 light = v3_create(mesh_scene.light[0], mesh_scene.light[1], mesh_scene.light[2]);
-    V3 center = v3_multiplied(v3_added(min, max), 0.5f);
-    V3 up = (light.y > 0.99f || light.y < -0.99f) ? v3_create(0, 0, 1) : v3_create(0, 1, 0);
-    M4 view = m4_look_at(v3_added(center, light), center, up); // only the direction matters, any distance works
+    Vector3 min = mesh_shadow_min, max = mesh_shadow_max;
+    Vector3 light = vector3_create(mesh_scene.light[0], mesh_scene.light[1], mesh_scene.light[2]);
+    Vector3 center = vector3_multiplied(vector3_added(min, max), 0.5f);
+    Vector3 up = (light.y > 0.99f || light.y < -0.99f) ? vector3_create(0, 0, 1) : vector3_create(0, 1, 0);
+    M4 view = m4_look_at(vector3_added(center, light), center, up); // only the direction matters, any distance works
 
-    V3 lo = v3_create(1e30f, 1e30f, 1e30f), hi = v3_create(-1e30f, -1e30f, -1e30f);
+    Vector3 lo = vector3_create(1e30f, 1e30f, 1e30f), hi = vector3_create(-1e30f, -1e30f, -1e30f);
     for (i32 k = 0; k < 8; k++) {
-        V3 corner = v3_create(k & 1 ? max.x : min.x, k & 2 ? max.y : min.y, k & 4 ? max.z : min.z);
-        V3 p = m4_transform_point(view, corner);
+        Vector3 corner = vector3_create(k & 1 ? max.x : min.x, k & 2 ? max.y : min.y, k & 4 ? max.z : min.z);
+        Vector3 p = m4_transform_point(view, corner);
         if (p.x < lo.x) lo.x = p.x;
         if (p.y < lo.y) lo.y = p.y;
         if (p.z < lo.z) lo.z = p.z;

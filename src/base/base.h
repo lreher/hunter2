@@ -22,26 +22,26 @@ typedef f32 real;
 
 typedef struct {
     real x, y, z;
-} V3;
+} Vector3;
 
-// math.c. functions that change their first argument are v3_verb, ones that return a new value are v3_verbed
-V3 v3_create(real x, real y, real z);
-V3 v3_zero(void);
-void v3_add(V3 *target, V3 v);
-V3 v3_added(V3 a, V3 b);
-void v3_subtract(V3 *target, V3 v);
-V3 v3_subtracted(V3 a, V3 b);
-void v3_multiply(V3 *v, real scale);
-V3 v3_multiplied(V3 v, real scale);
-void v3_add_scaled(V3 *target, V3 v, real scale);
-void v3_invert(V3 *v);
-real v3_scalar_product(V3 a, V3 b);     // dot product
-V3 v3_vector_product(V3 a, V3 b);       // cross product
-V3 v3_component_product(V3 a, V3 b);    // a.x*b.x, a.y*b.y, a.z*b.z
-real v3_square_magnitude(V3 v);
-real v3_magnitude(V3 v);
-void v3_normalize(V3 *v);
-V3 v3_lerp(V3 a, V3 b, real t);
+// math.c. functions that change their first argument are vector3_verb, ones that return a new value are vector3_verbed
+Vector3 vector3_create(real x, real y, real z);
+Vector3 vector3_zero(void);
+void vector3_add(Vector3 *target, Vector3 v);
+Vector3 vector3_added(Vector3 a, Vector3 b);
+void vector3_subtract(Vector3 *target, Vector3 v);
+Vector3 vector3_subtracted(Vector3 a, Vector3 b);
+void vector3_multiply(Vector3 *v, real scale);
+Vector3 vector3_multiplied(Vector3 v, real scale);
+void vector3_add_scaled(Vector3 *target, Vector3 v, real scale);
+void vector3_invert(Vector3 *v);
+real vector3_scalar_product(Vector3 a, Vector3 b);     // dot product
+Vector3 vector3_vector_product(Vector3 a, Vector3 b);       // cross product
+Vector3 vector3_component_product(Vector3 a, Vector3 b);    // a.x*b.x, a.y*b.y, a.z*b.z
+real vector3_square_magnitude(Vector3 v);
+real vector3_magnitude(Vector3 v);
+void vector3_normalize(Vector3 *v);
+Vector3 vector3_lerp(Vector3 a, Vector3 b, real t);
 
 // math.c, for rendering (f32, not real). own trig because there is no libc
 #define F32_PI 3.14159265f
@@ -59,16 +59,16 @@ M4 m4_identity(void);
 M4 m4_multiplied(M4 a, M4 b); // a * b: applies b first, then a
 // right handed, camera looks down -z. depth goes 0 at near to 1 at far (WebGPU)
 M4 m4_perspective(f32 fov_y, f32 aspect, f32 near, f32 far);
-M4 m4_look_at(V3 eye, V3 target, V3 up);
+M4 m4_look_at(Vector3 eye, Vector3 target, Vector3 up);
 // same axes and depth range as m4_perspective, without the perspective (parallel rays, for the sun)
 M4 m4_orthographic(f32 left, f32 right, f32 bottom, f32 top, f32 near, f32 far);
-V3 m4_transform_point(M4 m, V3 p); // m * (p, 1), divided by w
+Vector3 m4_transform_point(M4 m, Vector3 p); // m * (p, 1), divided by w
 
 // rand.c. xorshift32, same seed = same numbers
 void rand_seed(u32 seed);
 u32 rand_u32(void);
 f32 rand_f32(f32 min, f32 max);
-V3 rand_unit_v3(void);
+Vector3 rand_unit_vector3(void);
 
 // str.c
 i32 str_len(const char *s);
