@@ -4,6 +4,7 @@
 Mostly done. Built: layers, unity build, GPU bridge, fixed step loop, stats line, input, phys/ with particles and circle collisions, headless tests.
 Not done: arenas and pools, scenes by ?scene=, on screen HUD (font only has Hello World letters).
 Physics work continues in physics-engine.md. The decisions below still apply to all code.
+Engine structure (objects, actuators, emitter types, emitters, inputs as data, no classes, mostly functional) is defined in focus/engine.md (2026-11-15). Where its code lives in the layers is still open there.
 
 Goal: split the code into a clear, extensible structure. Know where to look for things.
 

@@ -25,8 +25,9 @@ static void hunter2_update(f32 seconds) {
 }
 
 FORCE_INLINE void hunter2_step(real time_step) {
-    ship_step(ship_read_input(), time_step);
-    ship_camera_step(time_step);
+    ShipInput input = ship_read_input();
+    ship_step(input, time_step);
+    ship_camera_step(input, time_step);
 }
 
 // a square of lines under the ship, moved in whole cells so it seems to go on forever

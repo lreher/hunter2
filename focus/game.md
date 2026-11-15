@@ -1,17 +1,19 @@
 # focus: game
 
 Goal: turn the Gravity Cloud demo (src/demo/cloud.c) into a game. The game is 3D (user, 2026-11-14).
+The game is being restructured onto an engine of parts (objects, actuators, emitters): focus/engine.md has the agreed model and its rules. Read it before changing how the ship or particles are built.
 
 ## How we work here
 - Build and restart the server (npm start, port 8000) after every change, so the user only has to reload (user, 2026-11-14, "for now"). Stop it at the end of the session.
 - The user owns the game design. Claude does not guess or pitch game ideas, and does not ask leading questions about them. Wait for the user to say what to build, then build that.
 
-## State (2026-11-14, second session)
+## State (2026-11-15, third session)
 - hunter2 is its own demo (src/demo/hunter2.c, id "hunter2"), first in the bar and loaded by default. It has the ship (src/demo/ship.c) with thruster exhaust (GPU particles, render/particles.c), its chase camera, a debug grid (41 lines, 10 m apart) and a HUD line (speed, drift / boost, thrust N, particles ~N). No cloud bodies in it yet. Other demos (balls, cloud, bridge, pool) unchanged.
 - Gravity Cloud (src/demo/cloud.c) is the starting point the game comes from: up to 500 bodies, all pairs gravity (FORCE_ATTRACT) and our sphere collisions.
 - Controls: left click the canvas to lock the mouse and fly (left click while flying does nothing), Esc lets the mouse go (the browser's own, a page cannot change it). Mouse moves the aim (orange dot, hidden: SHIP_SHOW_AIM 0), the ship turns toward it (white cross = nose). W/S thrust forward/back, A/D side thrust, Shift/Control thrust up/down, Q/E roll, Space boost (forward thrust + boost %), hold the right mouse button to drift. Backspace: free fly camera and back. Free camera keys are game.c's (WASD, E/Q, Shift faster).
-- Panel (hunter2): flight (thrust, boost %, reverse, side, up/down N, drag, pitch/yaw/roll rad/s, turn response, thrust response, engine cutoff %, drift drag cut %), camera (distance, height, look ahead, follow), particles (see below), debug (grid), then save / load. Saved settings load on start. A click on a group title folds it (only the title shows), another unfolds (all demos, web/ui.js). Folds are remembered per demo on every click (localStorage hunter2.folded.<demo id>, {name: true}), separate from save / load. No compare group: its alternatives are removed from the code (user).
-- Everything up to the end of the second session (2026-11-14) is committed and pushed (git log for the hash).
+- Panel (hunter2): flight (thrust, boost %, reverse, side, up/down N, drag, pitch/yaw/roll rad/s, turn response, thrust response, engine cutoff %, drift drag cut %), camera (distance, max distance, boost max distance, pull back m per 100 m/s, pull response, height, look ahead, follow), particles (see below), debug (grid), then save / load. Saved settings load on start. A click on a group title folds it (only the title shows), another unfolds (all demos, web/ui.js). Folds are remembered per demo on every click (localStorage hunter2.folded.<demo id>, {name: true}), separate from save / load. No compare group: its alternatives are removed from the code (user).
+- Everything up to the end of the second session (2026-11-14) is committed and pushed (git log for the hash). Not committed yet (third session): camera pulls back with speed, nozzle placement (twin main, twin forward, side on the wing tops).
+- Engine work started (focus/engine.md): model agreed, no engine code yet.
 
 ## Decisions
 - Game is 3D (user).
@@ -30,13 +32,13 @@ Goal: turn the Gravity Cloud demo (src/demo/cloud.c) into a game. The game is 3D
 Order: ship_update_aim (once per browser frame) -> per physics step: ship_read_input -> ship_step -> ship_camera_step -> draw: ship_draw, ship_draw_exhaust, ship_draw_hint, ship_draw_marks, ship_camera_view (via demo_view).
 - ShipTuning ship_tuning (defaults = user's save 2026-11-14): mass 1000 kg, thrust 70000, boost 150 %, reverse 45000, side 34500, lift 30000 N, drag 0.5/s, pitch 2.2 / yaw 2.3 / roll 3.2 rad/s, turn_response 11.8/s, thrust_response 4/s, engine_cutoff 10 %, drift_drag_cut 80 %, auto level always on, no switch (level_angle 0.8 rad, level_strength 0.5).
 - ShipAimTuning ship_aim_tuning (code only): sensitivity 0.002 rad/px, full_turn_angle 0.6 rad, limit 1.0 rad, invert_pitch 0.
-- ShipCameraTuning ship_camera_tuning: distance 6, height 2.4, look_ahead 7.9, follow 5/s.
+- ShipCameraTuning ship_camera_tuning: distance 6 (standing still), max_distance 10, boost_max_distance 16, pull_back 3 m per 100 m/s, pull_response 2/s, height 2.4, look_ahead 7.9, follow 5/s.
 - ShipInput: thrust, side, lift, pitch, yaw, roll (each -1..1), drift, boost. Every input source fills this.
 - ship_update_aim: mouse turns ship_aim (unit world direction) around the camera's up and right, kept within limit of the nose. Mouse free or free camera: aim = nose.
 - ship_read_input: straight at the aim: direction (aim_right, aim_up) in ship axes, share = angle off / full_turn_angle, top speed on the ellipse between pitch and yaw speed. Keys. Auto level when Q/E are up: roll toward world up, faded by how level the nose is.
 - ship_step: turn speed (ship axes) eases toward input * speeds (turn_response), quaternion_add_rotation. ship.thrust (N, ship axes: x side, y lift, z forward with boost) eases toward what the keys ask (thrust_response) per axis through ship_thruster_ease: never weaker than engine_cutoff % of that thruster's full force (lights straight at it, goes out below it). Forces come from it. Drift: asks for no thrust (it ramps down), drag cut. Thrust along the nose, side along the right wing, lift along the ship's up (particle_add_force). Drag as particle damping 1 - drag * time_step. particle_integrate.
-- ship_camera_step: camera rotation trails the ship's (quaternion_lerp, follow * time_step).
-- ship_camera_view: eye = ship + camera rotation * (0, height, distance), looks look_ahead in front of the nose.
+- ship_camera_step(input, time_step): camera rotation trails the ship's (quaternion_lerp, follow * time_step). ship_camera.distance eases (pull_response) toward distance + pull_back * speed / 100, at most max_distance, or boost_max_distance while boosting (Space + W, no drift).
+- ship_camera_view: eye = ship + camera rotation * (0, height, blended distance), looks look_ahead in front of the nose.
 - Ship model: wedge, nose -z, 6 triangles, ship_build_model.
 
 ## Engine pieces added this stage
@@ -66,16 +68,16 @@ Order: ship_update_aim (once per browser frame) -> per physics step: ship_read_i
 - Spawn: emitter found by first index, random from a PCG hash of (index ^ seed), even spread over the cone's cap, spread along previous -> position with matching age. Move: velocity *= kept share, position += velocity * seconds, age += seconds, dead slots read 8 bytes and stop.
 - Draw: square facing the camera (camera right/up from the view projection rows), or a streak along the velocity (length size + speed * stretch) when it moves. Glow (1 - r^2)^2, color start -> end over life, fades out with life.
 - Idle cost zero: particle_awake_seconds counts down from the longest lifetime emitted. At 0 no passes and no draw.
-- Thruster attachment (ship.c): ship_nozzles[SHIP_NOZZLE_COUNT], position + exhaust direction in ship axes, named after the push. MAIN back face (0, 0.03, 0.65) out the back, REVERSE nose tip (0, 0, -1.25) out the front, RIGHT left wing tip (-0.95, 0, 0.6) out left, LEFT right wing tip out right, UP keel (0, -0.25, 0.5) out the bottom, DOWN top ridge (0, 0.35, 0.45) out the top. ship_draw_exhaust (from hunter2_draw): each nozzle gets the ship_exhaust look, thrust share = that thruster's eased force now (from ship.thrust) / main thrust (1 = main at full, boost in it): rate = look rate * share, spark speed = base speed + (look speed - base speed) * share (ship_base_speed 30, slider base speed m/s), cone = look cone / (1 + cone squeeze * (share - 1)) (ship_cone_squeeze 0.3, slider) (user: rate, speed and cone sliders = main at full), placed and turned with the drawn ship, ship velocity on top. Off nozzles still call render_emit at rate 0 so their trail starts from the right spot. Nozzles below the engine cutoff fire nothing.
+- Thruster attachment (ship.c): six thrusters (SHIP_THRUSTER_*, named after the push), eight nozzles (ship_nozzles[SHIP_NOZZLE_COUNT]: thruster, position + exhaust direction in ship axes). MAIN two engines on the back face (+-0.4, 0.03, 0.62) out the back, REVERSE two on the front edges either side of the nose (+-0.17, 0, -0.85) out the front, RIGHT on top of the left wing (-0.6, 0.09, 0.4) out left, LEFT on top of the right wing out right, UP keel (0, -0.25, 0.5) out the bottom, DOWN top ridge (0, 0.35, 0.45) out the top. ship_draw_exhaust (from hunter2_draw): each nozzle gets the ship_exhaust look, thrust share = its thruster's eased force now (from ship.thrust) / main thrust (1 = main at full, boost in it): rate = look rate * share / that thruster's nozzle count (two nozzles split the sparks), spark speed = base speed + (look speed - base speed) * share (ship_base_speed 30, slider base speed m/s), cone = look cone / (1 + cone squeeze * (share - 1)) (ship_cone_squeeze 0.3, slider) (user: rate, speed and cone sliders = main at full), placed and turned with the drawn ship, ship velocity on top. Off nozzles still call render_emit at rate 0 so their trail starts from the right spot. Nozzles below the engine cutoff fire nothing.
 - Exhaust look (ship_exhaust; rate, speed, cone = main thruster at full). Defaults (user's save): rate 20000/s, speed 90 +- 5, base speed 30, cone 0.15, cone squeeze 0.3, life 1 +- 1.55 s, size 0.05 m, white yellow -> orange; render_particle_tuning: capacity 262144, drag 1/s, stretch 0.02 s. Panel group particles: max particles (log), rate /s (log), life s, life spread s, speed m/s, base speed m/s, speed spread m/s, cone rad, cone squeeze, size m, streak s, particle drag /s. HUD: particles ~N.
 
 ## Next
+- Emitter types (side, up, down thrusters look different from main and forward): moved to focus/engine.md. The engine model is agreed there; setting it up starts with the emitter.
 - Particle looks (user says what). Ideas already listed to the user: glow shape, color and brightness over life, size over life, spawn pattern, blending, bloom later.
-- Camera pulls back with speed up to a max distance, boost raises the max (user asked, interrupted before any code; my plan was distance easing toward base + (max - base) * speed / top speed).
 
 ## Open questions
 - (user decides the design)
-- Local emitter code in render (anchors) is unused: keep or delete? (user to say)
+- Local emitter code in render (anchors) is unused: keep or delete? (user to say; may become an emitter type setting, focus/engine.md)
 
 ## Log
 - 2026-11-14: focus created. Book paused (focus/physics-engine.md). Last commit before this stage: 9a05cad.
@@ -128,3 +130,8 @@ Order: ship_update_aim (once per browser frame) -> per physics step: ship_read_i
 - 2026-11-14: engine cutoff (user: low range felt weird): engine_cutoff 10 % (slider engine cutoff %, 0..50). ship_thruster_ease per axis: lights straight at the cutoff, goes out below it. Headless main share: 0.10 on the first frame, 0.66 at 0.25 s; after release 0.35 at 0.25 s, 0 by 0.75 s (was a long tail).
 - 2026-11-14: user: still ship, quick A tap, a few sparks fly left. Cause: ramping down to the 10 % cutoff made sparks as slow as 90 * 0.1 - 5 = 4 m/s, slower than the ship drifting left. Fix (user: always a baseline speed): speed = base + (speed - base) * share, ship_base_speed 30 (slider base speed m/s). Headless tap A 0.2 s, slowest spark along its nozzle in the world: -5.7 m/s with base 0, +22.7 with base 30.
 - 2026-11-14: session end. focus brought up to date, handover/game.md rewritten (next: QoL, starting with the camera pulling back with speed), committed and pushed. Server stopped.
+- 2026-11-15: new session (QoL). setup ok, build and unit tests pass, server on :8000. Waiting for the first instruction.
+- 2026-11-15: camera pulls back with speed (user): wanted distance = distance + pull_back (3 m) per 100 m/s, capped at max distance 10 m, or boost max distance 16 m while boosting, eased at pull response 2/s. New sliders in camera, "distance m" kept (now the standing still distance, so saves still load). Headless: eye to ship 6.5 m at rest, 10.3 at ~120 m/s, 15.8 boosting at ~300 m/s, back to 10.3 after boost, 7.4 three seconds after letting go of W.
+- 2026-11-15: nozzle placement (user): main = two engines side by side on the back face, reverse = two streams on the front edges either side of the nose, side thrusters on top of the wings. Thrusters and nozzles split (SHIP_THRUSTER_* + ShipNozzle.thruster), a thruster's nozzles share its rate. Headless (unturned ship, positions relative to it): W fires (+-0.40, 0.03, 0.62) out the back at 126 sparks/frame each, S (+-0.17, 0, -0.85) out the front, A the right wing top (0.6, 0.09, 0.4) out right, D the left one out left.
+- 2026-11-15: user wants side/up/down thrusters as a different emitter type, as the start of thinking about the code as a game engine. New focus/engine.md holds that work.
+- 2026-11-15: engine model agreed with the user (focus/engine.md: objects with actuators, emitter types and emitters, inputs as data). State and links brought up to date.

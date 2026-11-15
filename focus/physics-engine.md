@@ -2,6 +2,8 @@
 
 Goal: learn how to write a physics engine by working through Millington's "Game Physics Engine Development" chapter by chapter, building it together in src/phys/. Learning the physics comes first, the game second. Rendering, cameras and tooling are only there to see and check the physics: keep them as cheap as possible (2026-10-31). Second goal: everything lightning quick. So we keep C + wasm + our own WebGPU bridge (raylib and three.js weighed and dropped 2026-10-31: both slower for many instances, raylib web is WebGL and DrawSphere builds vertices on the CPU every call). Render kit for the whole book, built once and kept minimal: instanced meshes (sphere, box), lines, a free camera.
 
+Paused (2026-11-14). The game now builds on an engine of parts (focus/engine.md): an object there is a physics object, moved by src/phys/.
+
 ## How we work here
 - The user reads the book. Claude reads along: explains sections short or in depth, as asked.
 - Claude writes code only when directed. Small first, or just what a step needs.

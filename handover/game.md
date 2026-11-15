@@ -6,12 +6,12 @@ Stage: we are making a 3D game, growing out of the Gravity Cloud demo (src/demo/
 
 Where we are: the hunter2 demo (src/demo/hunter2.c, loads by default) has a flyable ship (src/demo/ship.c) with thrusters that ramp up and down (engine cutoff), Space boost, right mouse button drift, a chase camera, and thruster exhaust: our own GPU particle system (src/render/particles.c, compute shaders in src/render/shaders.c, one emitter per nozzle, sparks fly free with the ship's velocity at emission). The panel groups fold and remember it, save/load works, and the code defaults are my saved settings. focus/game.md has the full state, decisions, controls and code maps of ship.c and particles.c. Commit only when I ask.
 
-Next: more quality of life changes, I will say which. Still open from last session (focus/game.md, Next): the camera pulling back from the ship with speed up to a max distance, with boost raising the max (asked, no code yet), then particle looks. Important: before removing any panel control, put my saved value into the code default first (removing one without that broke the flight feel last session).
+Next: the code is being restructured into an engine of parts (focus/engine.md, handover/engine.md); ship and particle changes go through that model now. Done since the last handover: the camera pulls back with speed (boost raises the max), and the nozzles moved (twin main, twin forward, side thrusters on the wing tops). Still open: particle looks (I say what). Important: before removing any panel control, put my saved value into the code default first (removing one without that broke the flight feel once).
 
 Setup: run ./setup.sh first (checks tools, only does what is missing; ask before installing anything).
 
 Then read:
-- focus/game.md: this task.
+- focus/game.md: this task. focus/engine.md: the engine model the game is moving onto.
 - focus/architecture.md, the Decisions section: code rules (layers, naming, unity build). Naming: no shorthand names.
 - src/demo/ship.c and src/demo/hunter2.c, then src/render/particles.c, src/render/render.h and web/ui.js as needed.
 
