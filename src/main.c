@@ -22,9 +22,15 @@
 #include "render/mesh.c"
 #include "render/render.c"
 
+#include "engine/engine.h"
+#include "engine/input.c"
+#include "engine/object.c"
+#include "engine/actuator.c"
+#include "engine/emitter.c"
+#include "engine/engine.c"
+
 #include "demo/demo.h"
 #include "demo/balls.c"
-#include "demo/ship.c"
 #include "demo/hunter2.c"
 #include "demo/cloud.c"
 #include "demo/bridge.c"

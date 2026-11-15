@@ -60,7 +60,7 @@ FORCE_INLINE void demo_draw(i32 demo, f32 alpha, f32 seconds, f32 hud_top) {
 
 i32 demo_view(i32 demo, f32 alpha, DemoView *view) {
     switch (demo) {
-    case DEMO_HUNTER2: ship_camera_view(alpha, view); return 1;
+    case DEMO_HUNTER2: hunter2_camera_view(alpha, view); return 1;
     }
     return 0;
 }

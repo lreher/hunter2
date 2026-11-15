@@ -1,21 +1,21 @@
 Read brain.md first.
 
-Project: hunter2 (this repo). A browser game in C, compiled to wasm, rendered with WebGPU through our own thin JS bridge. Physics written from scratch (src/phys/) from Millington's "Game Physics Engine Development" (book paused). The game (src/demo/hunter2.c, src/demo/ship.c) has a flyable ship with thruster exhaust from our own GPU particle system (src/render/particles.c).
+Project: hunter2 (this repo). A browser game in C, compiled to wasm, rendered with WebGPU through our own thin JS bridge. Physics from scratch (src/phys/). The game (src/demo/hunter2.c) is a flyable ship with GPU particle exhaust.
 
-Stage: we are restructuring the code into a game engine made of parts, defined together step by step. focus/engine.md has the agreed model: objects (physics objects with a list of actuators), actuators (defined on their own with a name, type push or turn, each object gets its own instance, editing the shared one changes all), emitter types (shared particle settings) and emitters (placed instances, attached to an object or on their own, each reads its own input), inputs as data (each part reads its input when it runs, no callbacks). Long term: the game shows all its parts and lets me configure them like a real game engine.
+Stage: the engine is built (src/engine/, focus/engine.md "Built"). The game is made of parts written as plain tables in hunter2.c: an object (the ship), actuator types and actuators (push: engine, reverse, side, up/down; turn: pitch, yaw, roll with auto level), emitter types and emitters (one per nozzle, each reading its actuator), inputs as data (each part has a Source it reads when it runs). The engine builds the debug panel from the parts' data. The user checked it in Chrome: it flies the same as before. Nothing is committed yet.
 
-How we work on this: build it up together, do not jump the gun. No classes, mostly functional. Keep concept talk simple and short, no formulas, numbers or invented names unless I ask, never present a placeholder name as settled. Think like a game developer building it in an editor first, then the code. I own the game design: do not pitch game ideas.
+Task now: the engine / game UI. The panel (web/ui.js, one HTML overlay, top right) now has 14 groups in wrapping rows and looks cluttered ("gosh darn awful"). Look at how real game engines show this kind of thing (Unity, Unreal, Godot: hierarchy or tree of parts, an inspector for the selected one, shared definitions as assets or resources, how inputs and wiring are shown) and work out with me how our parts should be visualized: objects with their actuators and emitters, shared types edited in one place, inputs as wiring. Long term the game shows all its parts and lets me configure them like a real engine, so this is the first shape of that editor.
 
-Next: code work starts with the emitter (focus/engine.md, Next): emitter types and emitters, the ship's nozzles become emitters, side and up/down thrusters get their own emitter type. Settle the open points listed there with me first (where the code lives, names, how types show on the panel without breaking my saved settings). Important: before removing or renaming any panel control, put my saved value into the code default first.
+How we work on this: build it up together, do not jump the gun. Talk it through first, editor UI first, then code. Small sketches (ASCII mockups are fine), I decide. Keep concept talk simple and short, no invented names presented as settled. No classes, mostly functional. I own the game design: do not pitch game ideas. Important: before removing or renaming any panel control or group, get my saved settings (I paste copy(localStorage.getItem("hunter2.settings.hunter2")) from the Chrome console) and put them into the code defaults first.
 
 Setup: run ./setup.sh first (checks tools, only does what is missing; ask before installing anything).
 
 Then read:
-- focus/engine.md: this task, all of it.
-- focus/game.md: the game's state, controls, and the code maps of ship.c and particles.c.
-- focus/architecture.md, the Decisions section: code rules (layers, naming, unity build, no function pointers in the hot path). Naming: no shorthand names.
-- src/demo/ship.c, src/demo/hunter2.c, src/render/particles.c, src/render/render.h, web/ui.js as needed.
+- focus/engine.md: all of it, especially "Built" (code map, panel, saves) and "Next".
+- focus/game.md: State and Decisions (the panel decisions: grouped columns that fold, only feel numbers, log sliders for max particles and rate, save and load, no reset).
+- focus/architecture.md, Decisions: layers (base <- platform <- render <- engine <- demo <- game), JS split by browser feature, naming (no shorthand).
+- web/ui.js (the panel), src/platform/platform.h (plat_ui_*), src/engine/engine.c (engine_add_sliders), src/demo/hunter2.c as needed.
 
-Checks: ./build.sh builds, ./test.sh runs unit tests headless (tests/test.c). tests/headless/fake.mjs runs the real game with a fake WebGPU (SCENE=<id> picks a demo, hunter2 is the default; hooks.write sees buffer writes; see Machine notes in focus/engine.md). WGSL cannot be checked headless, Chrome is the real test. I check every change in Chrome: after every change, build and restart the server yourself (npm start, http://localhost:8000) so I only reload. Stop it when the session ends. Commit only when I ask. Deploys only when I ask (handover/deploy.md).
+Checks: ./build.sh builds, ./test.sh runs unit tests. tests/headless/fake.mjs runs the real game with a fake WebGPU and fake DOM (sliders, tabs; see Machine notes in focus/engine.md). I check every change in Chrome: after every change, build and restart the server yourself (npm start, http://localhost:8000) so I only reload. Stop it when the session ends. Commit only when I ask. Deploys only when I ask (handover/deploy.md).
 
 Keep focus/engine.md (and focus/game.md for game changes) up to date yourself. Then tell me you are ready and wait for my first instruction.

@@ -63,10 +63,65 @@ f32 source_read(Source source); // switch on kind: plat_key_down, or that actuat
 
 Applied to the ship (target): object "ship" with push actuators (main engine, reverse, side, up/down) and turn actuators (pitch, yaw: mouse aim; roll: Q/E, else tilt = auto level); emitters attached to it. Main and forward emitters use one emitter type, side and up/down emitters another (the user's original ask).
 
-## Next
-- Code work starts with the emitter (user, 2026-11-15): emitter types + emitters as in The model, the ship's nozzles become emitters, side and up/down get their own emitter type. Talk each piece through with the user before writing it (How we work here).
-- To settle with the user at the start, not decided: where the engine code lives (folder, layer: base <- platform <- render <- demo <- game); struct and function names (ask with a small example, brain rule 10); how emitter types show on the panel (saves are keyed by slider name only, two types with the same slider names collide; the user's saved values must keep loading, bake them into code defaults before renaming anything, focus/game.md); the look changes from dropping the rate split and the main thrust share (open question below), the user should know before it lands.
-- Then actuators and objects (order with the user).
+## Folder plan (agreed 2026-11-15, user: "love it")
+The whole code is rearchitected around the model (user: "the whole point"). Names are proposals until the user picks.
+```
+src/
+  base/ phys/ platform/ render/   unchanged, know nothing about the parts
+  engine/   NEW: the parts, plain data + functions over it, one public header
+    inputs      sources a part reads: key, mouse aim, tilt, an actuator
+    objects     physics objects + their attached actuators
+    actuators   shared definitions (push, turn) + instances
+    emitters    emitter types + placed emitters
+    engine      holds all parts, runs a physics step and a drawn frame over them
+  demo/     hunter2 becomes data (ship object, actuators, emitters); chase camera stays here for now; other demos unchanged
+  game/     unchanged: loop calls the demo, the demo runs the engine
+```
+Layers: base <- platform <- render, phys <- engine <- demo <- game.
+Each physics step: actuators read input, push or turn their object, physics moves it. Each drawn frame: objects draw, emitters read input, place themselves, send sparks.
+ship.c empties piece by piece: flight -> actuators, nozzles -> emitters, ship -> object. Left at the end: data in hunter2.c + the camera.
+Build order (each step works in Chrome before the next):
+1. engine/ + emitter types and emitters; nozzles move over first, ship.c still flies.
+2. Inputs as data (keys, mouse aim, tilt as sources).
+3. Actuators (push, turn) take over thrust and steering.
+4. Objects (ship becomes an object with its actuators).
+5. Panel shows each part's settings from its data instead of hand wired sliders.
+Before anything changes: the user pastes their saved settings (localStorage hunter2.settings.hunter2), Claude bakes them into code defaults. Look change from rate split / thrust share: deal with once the engine is worked out (user).
+
+## Built (2026-11-15, user: "just do everything". Checked in Chrome, user: "feels similar enough")
+The whole plan in one go: engine/ with inputs, objects, actuators, emitters and the engine loop; ship.c is gone, hunter2.c holds the ship as tables plus the camera, marks, hint, grid, HUD. Names are the code's for now, the user has not picked them (only EmitterType / Emitter: "sure for now").
+
+Code map (src/engine/, one public header engine.h, unity build order input, object, actuator, emitter, engine):
+- Source {kind, index, negative} + INPUT_* table macros (INPUT_KEY(KEY_W), INPUT_KEY_PAIR(KEY_E, KEY_Q), INPUT_AIM_PITCH, INPUT_AIM_YAW, INPUT_TILT, INPUT_ACTUATOR(i), INPUT_ALWAYS). source_read(engine, source, object): keys, aim and tilt read 0 while engine.inputs_on is 0 (free camera); actuator and always still read.
+- input.c: InputTuning input_tuning (aim sensitivity 0.002, full turn angle 0.6, limit 1.0, invert 0, level angle 0.8, level strength 0.5; code only). object_update_aim (once per frame, old ship_update_aim). input_work_out (per step, per object): aim_pitch / aim_yaw from the aim with the pitch and yaw turn actuators' speeds (the ellipse), tilt for auto level.
+- object.c: Object = name, start_position, mass, drag, drag_cut % + drag_cut_input (the drift), model (-1 none), size (draw scale), color, and state (particle, previous position, rotation, previous rotation, aim, aim_pitch, aim_yaw, tilt). object_start, object_axis, object_drawn_position / rotation. No shape yet (nothing uses it).
+- actuator.c: ActuatorType = name, kind (ACTUATOR_PUSH / ACTUATOR_TURN; "kind" because type means the shared definition), force N, boost %, cutoff %, speed rad/s, response /s. Actuator = type, object, direction (push: the way it pushes; turn: the axis, input 1 turns right hand around it), input, fallback (read when input is 0), block (asks nothing while on), boost (push: adds the type's boost while on and input > 0), now (N or rad/s). actuator_ease: turn eases to input * speed; push eases to input * force (* boost), never below cutoff (lights at it, goes out under it). actuator_strength = now / full (past 1 with boost): what emitters read.
+- emitter.c: as step 1, plus Emitter.object (-1 = on its own, world position) and Emitter.input.
+- engine.c: Engine = pointers + counts of the game's tables, inputs_on. engine_start. engine_step (FORCE_INLINE): previous state + input_work_out per object, actuator_ease for all, then per object: turn actuators sum into a turn (own axes) -> quaternion_add_rotation, push actuators add forces along the new axes, drag (cut while drag_cut_input), mass, particle_integrate. engine_draw: models, then every emitter (input clamped at 0). engine_add_sliders: a group per object (drag, drag cut %), per actuator type (push: force N, boost % if any instance has a boost input, response /s, cutoff %; turn: speed rad/s, response /s), "particles" (max particles, streak, particle drag), per emitter type.
+- Push direction and turn axis sit on the instance, not the type (the sketch had them on the type): side thrust and up/down thrust are one type each, used by two actuators pointing opposite ways, so one slider covers both like before.
+- Actuator x, y, z left out: nothing uses it until turning physics (open question).
+
+hunter2.c tables (defaults = user's save 2026-11-15):
+- Object "ship": mass 1000, drag 0.5, drag cut 80 % while right mouse (drift).
+- Actuator types: engine (push 70000, boost 150 %), reverse (45000), side thrust (34500), up/down thrust (30000), all cutoff 10 %, response 4; pitch 2.2, yaw 2.3, roll 3.2 rad/s, response 11.8.
+- Actuators: engine W (+ boost Space), reverse S, right D, left A, up Shift, down Control, all blocked by right mouse (drift). Pitch: aim up/down, axis +x. Yaw: aim left/right, axis -y. Roll: E/Q pair, fallback tilt (auto level), axis -z.
+- Emitter types main (rate 5000, main engine + reverse) and side (rate 5000, side + up/down). 8 emitters (same spots as before), input = their actuator.
+- Camera (Hunter2CameraTuning, panel group camera), boosting = Space + W, not S, no drift, not free camera. Marks, hint, grid, HUD (thrust N = engine now - reverse now).
+
+Checks: headless scripted flight (mouse aim, W, boost, side, up, roll, reverse, drift, A + Control) gives the same position and rotation as the old code to 3 decimals every 30 frames. Tests pass, keys.mjs and sim.mjs fine.
+
+Look changes (the user deferred this, "deal with it once the engine is worked out"): each emitter's input is now its own actuator's strength (now / its full force), not the share of the main engine. Main engine unchanged. Reverse at full now fires like the main engine at full (was about two thirds). Side and up/down: side type rate set to 5000 so at full they fire about what they did (they were about half of main); speed and cone very slightly different.
+
+Panel: groups ship, engine, reverse, side thrust, up/down thrust, pitch, yaw, roll, particles, main, side, camera, debug, save/load. It wraps into rows now (web/ui.js, right aligned, scrolls if needed). Old saves: "drag /s" and "boost %" load by bare name; the other flight values were shared sliders and are now per type (defaults = the user's save).
+
+Small behavior differences (only when keys fight): W + S together now pushes with engine minus reverse (was nothing). Switching W to S: the two thrusters ramp separately (net force the same, cutoff snaps differ slightly).
+
+## Next: the engine / game UI (user, 2026-11-15: the panel "looks gosh darn awful", make it less cluttered)
+- Today: web/ui.js draws one HTML panel over the canvas, top right, a flex row of groups that wraps (14 groups: ship, engine, reverse, side thrust, up/down thrust, pitch, yaw, roll, particles, main, side, camera, debug, save/load). Each group is a column of label, slider, value; a click on its title folds it (remembered per demo). C declares controls one by one (plat_ui_group, plat_ui_slider, plat_ui_slider_log, plat_ui_choice); engine_add_sliders builds the groups from the parts' data. Saves: localStorage hunter2.settings.<demo>, keyed "group/name", older saves fall back to the bare name.
+- Goal: look at how real engines show this (Unity, Unreal, Godot: a list or tree of parts, an inspector for the selected one, shared definitions as assets/resources) and work out with the user how the engine's parts should show: objects with their actuators and emitters under them, shared types edited in one place, inputs shown as wiring. Long term the game shows its own parts in an in-game editor (Long term above), so this is its first shape.
+- Talk it through first (How we work here): editor UI first, then code. Small sketches, the user decides. No game design pitches.
+- Before removing or renaming any panel control or group: the user's saved values go into code defaults first (ask them to paste copy(localStorage.getItem("hunter2.settings.hunter2")) from the Chrome console).
+- Other open points: names (actuator types, emitter types "main"/"side", Source / INPUT_*, Engine), reverse sparks now as strong as main at full (own emitter type?), nothing committed yet.
 
 ## Machine notes
 - Headless scripts on fake.mjs: draws and dispatches are never cleared, clear them per frame in long runs. hooks.write sees every buffer write: filter the particle frame uniform exactly (header 36 floats + 64 anchors x 8 + emitter_count x 24, emitter_count at u32 index 31), a loose length filter matched other buffers and ran out of memory. The ship's model instance is 16 floats with scale 1 (index 4) and green 0.87 (index 13). Scene uniform: eye at floats 20..22.
@@ -74,25 +129,21 @@ Applied to the ship (target): object "ship" with push actuators (main engine, re
 ## Open questions
 - Later maybe: real turning physics (forces off center turn the object, book rotation chapters). Would make every actuator a push and give its position a job, but changes the feel. Not now.
 - Actuator x, y, z: what it does while objects have no turning physics (a force off center would turn a rigid body; the ship is a point mass, its turning is ship.c's own). Not discussed.
-- A/D: one side actuator each way (two actuators) or one signed? Parked, it jumped ahead.
+- A/D: built as two actuators (right, left) from one type "side thrust". Same for W/S (engine, reverse) and up/down.
 - Today two nozzles share one thruster's rate (split by nozzle count) and side sparks are slower because their share is measured against main thrust. In the model each emitter fires its type's own rate and the type sets its speeds. Mention when building (the look changes).
 - Local emitters (anchors in render, sparks move with the emitter) are unused (focus/game.md open question). Could become an emitter type setting later.
 - Name for the "elements" (later). "Object" is a name for now.
-- Where the engine code lives (folder, layer) and how the panel shows parts: not discussed.
 
-## Today's code (where the model will land)
-- Loop: game_frame (src/game/game.c:165). Once per frame demo_update -> hunter2_update -> ship_update_aim. Fixed 1/60 s steps (up to 4) -> hunter2_step: ship_read_input (keys + aim -> ShipInput), ship_step (turning by quaternion_add_rotation, no phys; thrust eases per axis; forces into ship.particle; particle_integrate), ship_camera_step. Draw blended by alpha: ship_camera_view, hunter2_draw (grid, ship, ship_draw_exhaust -> render_emit per nozzle), render_end (particle compute pass, shadow, screen, particles last).
-- game/ owns time, knows nothing about ships, calls demos through plain switches (demo.c).
-- phys/: for the ship only a point mass pushed by forces (Particle, particle_add_force, particle_integrate). Contacts, force generators, springs unused in hunter2.
-- ship.c: a file of globals (ship, ship_camera, ship_tuning, ship_exhaust), only one ship can exist. Its thrusters are SHIP_THRUSTER_* with ShipNozzle entries (focus/game.md code map).
-- render/particles.c: RenderEmitter mixes the shared settings (rate, speed, cone, life, size, colors), the placement (position, direction, velocity, every frame) and its own memory (previous position, carry). ship_draw_exhaust copies ship_exhaust over every nozzle's emitter each frame, keeps the memory, writes the placement on top. That copy is where emitter types land.
-- Panel: wired by hand, one plat_ui_slider per field into a tuning struct (ship_add_sliders). Saves are keyed by slider name only (web/ui.js), so two groups with the same slider names would collide: matters once there are two emitter types.
+## Code before the engine (for history)
+- ship.c held the ship as globals (ship, ship_tuning, ship_camera, ship_exhaust) with ShipInput read from keys and aim, ship_step doing turning and thrust per axis, ship_draw_exhaust copying one look over every nozzle. All of it now lives in engine/ and hunter2.c (Built above).
 
 ## Decisions
 - "Force affector" is called actuator (user).
 - Object, actuator, emitter type, emitter as in The model (user).
 - Shared definition + separate instances, edits to the shared one reach every instance (user).
 - Actuator types: push and turn. Steering and auto level are turn actuators (user).
+- Folder plan and build order (user). Built all at once (user: "just do everything, the plan is decided").
+- Panel saves keyed group/name, old saves still load by bare name (user agreed to copying saved values first).
 
 ## Log
 - 2026-11-15: focus created. User wants the side and up/down thrusters to use a different emitter type, as the start of thinking about the code as a game engine. Claude's first plan (emitter types as handles, field tables, group save keys) rejected: too many layers at once, build it together.
@@ -102,3 +153,9 @@ Applied to the ship (target): object "ship" with push actuators (main engine, re
 - 2026-11-15: user asked how steering and auto level fit. Suggested push and turn actuators (open question updated).
 - 2026-11-15: user agreed: actuator types push and turn, steering and auto level are turn actuators.
 - 2026-11-15: focus readied for the code work, handover/engine.md written.
+- 2026-11-15 (session 2): folder plan agreed (engine/ between phys/render and demo/), build order 1-5. User wants a copy of saved settings baked in before the rearchitecture.
+- 2026-11-15 (session 2): user's save baked into code defaults (changed: pull_back 8.1, height 3.3, exhaust rate 10000, speed 28.5, stretch 0). Full save as pasted:
+  {"thrust N":70000,"boost %":150,"reverse N":45000,"side N":34500,"up/down N":30000,"drag /s":0.5,"pitch rad/s":2.2,"yaw rad/s":2.3,"roll rad/s":3.2,"turn response /s":11.8,"thrust response /s":4,"engine cutoff %":10,"drift drag cut %":80,"distance m":6,"max distance m":10,"boost max distance m":16,"pull back m per 100 m/s":8.1,"pull response /s":2,"height m":3.3,"look ahead m":7.9,"follow /s":5,"max particles":262144,"rate /s":10000,"life s":1,"life spread s":1.55,"speed m/s":28.5,"base speed m/s":30,"speed spread m/s":5,"cone rad":0.15,"cone squeeze":0.3,"size m":0.05,"streak s":0,"particle drag /s":1,"grid":1}
+- Step 1 talk: type vs emitter split re-explained, user agreed. Proposed parts as plain tables (like ship_nozzles) instead of add functions; names EmitterType / Emitter pending.
+- 2026-11-15 (session 2): step 1 (emitters) built, user: "looks fine I think". Then user: "just do everything". Built inputs, objects, actuators, engine loop, panel from data; ship.c removed. Same flight headless, look change on reverse (and slightly side).
+- 2026-11-15 (session 2, end): user checked the engine in Chrome ("feels similar enough"). Next: fix the cluttered panel, look at other engines for how to show the parts. handover/engine.md rewritten for it.

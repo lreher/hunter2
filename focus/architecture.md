@@ -13,7 +13,7 @@ Goal: split the code into a clear, extensible structure. Know where to look for 
 - web/platform.js: everything JS (webgpu setup, shader, pipeline, imports for C)
 
 ## Decisions
-- Layers (C): base <- platform <- render <- demo <- game. Each layer only uses layers below. phys depends on base only. demo/ holds one file per demo (Demo data and DEMO_* ids in demo/demo.h, table and switch dispatch in demo/demo.c, no function pointers: hot step and draw are FORCE_INLINE, Chrome runs them much slower as separate functions), game/ runs the loop, camera and shared HUD (2026-10-31).
+- Layers (C): base <- platform <- render <- engine <- demo <- game (engine added 2026-11-15, uses phys and render; focus/engine.md). Each layer only uses layers below. phys depends on base only. demo/ holds one file per demo (Demo data and DEMO_* ids in demo/demo.h, table and switch dispatch in demo/demo.c, no function pointers: hot step and draw are FORCE_INLINE, Chrome runs them much slower as separate functions), game/ runs the loop, camera and shared HUD (2026-10-31).
 - Each folder has one public header (e.g. render/render.h). Others include only that.
 - Game never touches JS or WebGPU directly.
 - src/main.c only exports game_init, game_frame.

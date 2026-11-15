@@ -49,7 +49,7 @@ typedef struct {
 RenderParticleTuning render_particle_tuning = {
     .capacity = 262144,
     .drag = 1.0f,
-    .stretch = 0.02f,
+    .stretch = 0,
 };
 
 static ParticleFrame particle_frame;

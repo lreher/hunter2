@@ -14,9 +14,11 @@ export function createUi(ctx) {
 
     let group = null;    // the panel column that new sliders go into
     let demoId = "";     // the running demo, for its saved settings
-    let controls = [];   // this panel's sliders and choices: {name, value(), set(v)}
+    let controls = [];   // this panel's sliders and choices: {key, value(), set(v)}
+    let groupName = "";  // the current group's title, part of each control's save key
 
-    // Saved settings: one entry per demo in localStorage, {name: value}. A demo starts with its last save (each
+    // Saved settings: one entry per demo in localStorage, {key: value}. key = "group/name", so two groups can
+    // have sliders with the same name. Older saves used the bare name: still read when the full key is missing. A demo starts with its last save (each
     // control picks its value up as C declares it), load puts the last save back. Storage can be missing or blocked (private window), then nothing is kept.
     const storageKey = () => `hunter2.settings.${demoId}`;
     function loadSaved() {
@@ -24,26 +26,38 @@ export function createUi(ctx) {
     }
     function saveAll() {
         const values = {};
-        for (const control of controls) values[control.name] = control.value();
+        for (const control of controls) values[control.key] = control.value();
         try { localStorage.setItem(storageKey(), JSON.stringify(values)); } catch { }
+    }
+    function savedValue(saved, control) {
+        if (typeof saved[control.key] === "number") return saved[control.key];
+        if (typeof saved[control.name] === "number") return saved[control.name]; // older save, bare name
+        return undefined;
     }
     function loadAll() { // controls missing from the save (added or renamed since) keep their value
         const saved = loadSaved();
-        for (const control of controls) if (typeof saved[control.name] === "number") control.set(saved[control.name]);
+        for (const control of controls) {
+            const value = savedValue(saved, control);
+            if (value !== undefined) control.set(value);
+        }
     }
     function addControl(name, value, set) {
-        controls.push({ name, value, set });
-        const saved = loadSaved()[name];
-        if (typeof saved === "number") set(saved);
+        const control = { key: groupName ? `${groupName}/${name}` : name, name, value, set };
+        controls.push(control);
+        const saved = savedValue(loadSaved(), control);
+        if (saved !== undefined) set(saved);
     }
 
     // the panel is a row of groups (js_ui_group), each a column of label, control, value
     function makePanel() {
         panel = document.createElement("div");
         panel.style.cssText = "position:fixed;top:12px;right:12px;padding:10px 12px;background:rgba(10,12,20,0.8);" +
-            "color:#ccc;font:12px monospace;border-radius:6px;display:flex;gap:20px;align-items:flex-start";
+            "color:#ccc;font:12px monospace;border-radius:6px;display:flex;gap:20px;align-items:flex-start;" +
+            // many groups wrap into rows, right aligned, and scroll if they still do not fit
+            "flex-wrap:wrap;justify-content:flex-end;max-width:calc(100vw - 48px);max-height:calc(100vh - 48px);overflow:auto";
         document.body.appendChild(panel);
         group = null;
+        groupName = "";
         controls = [];
 
         // save and load, always the last column (flex order), whatever groups come after
@@ -78,6 +92,7 @@ export function createUi(ctx) {
     // it starts the way it was left. controls added later go in hidden too, while it is folded (see target)
     function makeGroup(name) {
         if (!panel) makePanel();
+        groupName = name;
         group = document.createElement("div");
         const columns = "auto 140px 48px";
         group.style.cssText = `display:grid;grid-template-columns:${columns};gap:6px 8px;align-items:center`;
