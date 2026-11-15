@@ -58,11 +58,13 @@ void render_init(void) {
     render_bind_group = plat_gpu_create_bind_group(&bind_group);
 
     render_mesh_init();
+    render_particles_init();
 }
 
 // draws only collect into batches. the GPU work all happens in render_end
-void render_begin(f32 r, f32 g, f32 b) {
+void render_begin(f32 seconds, f32 r, f32 g, f32 b) {
     render_quad_count = 0;
+    render_particles_begin(seconds);
     render_clear[0] = r;
     render_clear[1] = g;
     render_clear[2] = b;
@@ -129,14 +131,17 @@ void render_draw_text_centered(const char *s, f32 scale, f32 r, f32 g, f32 b) {
     }
 }
 
-// shadow map first (a depth pass), then the screen: meshes, lines, then 2D on top
+// particles move first (a compute pass), then the shadow map (a depth pass), then the screen: meshes, lines,
+// particles, then 2D on top
 void render_end(void) {
     plat_gpu_begin_frame();
     f32 screen[2] = {(f32)plat_screen_width(), (f32)plat_screen_height()};
     plat_gpu_write_buffer(render_uniforms, 0, screen, sizeof(screen));
+    render_particles_compute();
     render_mesh_shadow_pass();
     plat_gpu_begin_screen_pass(render_clear[0], render_clear[1], render_clear[2]);
     render_mesh_draw();
+    render_particles_draw();
     if (render_quad_count > 0) {
         plat_gpu_write_buffer(render_instances, 0, render_quads, render_quad_count * sizeof(Quad));
         plat_gpu_set_pipeline(render_pipeline);

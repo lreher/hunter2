@@ -22,13 +22,15 @@ enum {
     KEY_BRACKET_RIGHT,
     KEY_R,
     KEY_BACKSPACE,
+    KEY_CONTROL, // either control key
+    KEY_MOUSE_RIGHT, // the right mouse button
 };
 
 // down = held right now. pressed = went down since the last frame (key repeat does not count)
 i32 plat_key_down(i32 key);
 i32 plat_key_pressed(i32 key);
 
-// mouse movement in pixels since the last frame, only while the mouse is locked (click the canvas)
+// mouse movement in pixels since the last frame, only while the mouse is locked (click the canvas, Esc lets it go)
 i32 plat_mouse_locked(void);
 f32 plat_mouse_dx(void);
 f32 plat_mouse_dy(void); // positive = down

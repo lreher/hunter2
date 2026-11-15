@@ -73,7 +73,13 @@ win.mousemove({ movementX: 200, movementY: 0 }); frame();
 console.log("mouse move while locked changed the view by", camDiff(c3, cam()).toFixed(2));
 
 cvs.click();
+console.log("left click while locked keeps it locked:", document.pointerLockElement !== null);
+cvs.mousedown({ button: 2 }); win.mouseup({ button: 2 });
+console.log("right click keeps it locked:", document.pointerLockElement !== null);
+document.exitPointerLock(); // what the browser does on Esc
 const c4 = cam();
 holdW(false);
-console.log("click again unlocks:", document.pointerLockElement === null, "| W after unlock changed the view by", camDiff(c4, cam()).toFixed(4), "(expect 0)");
+console.log("Esc unlocks:", document.pointerLockElement === null, "| W after unlock changed the view by", camDiff(c4, cam()).toFixed(4), "(expect 0)");
+cvs.click();
+console.log("left click locks again:", document.pointerLockElement !== null);
 console.log("preventDefault calls:", prevented);

@@ -216,3 +216,175 @@ static const char render_shader_line[] =
     "@fragment fn fs(i: VOut) -> @location(0) vec4f {\n"
     "    return vec4f(i.color, 1.0);\n"
     "}\n";
+
+// Particles (render/particles.c): look only, they live on the GPU. One storage buffer of slots, used as a ring.
+// Each frame: the move pass ages and moves every live slot, then the spawn pass writes this frame's new ones,
+// then the draw reads the same buffer. Layouts must match ParticleFrame, ParticleAnchorGpu and ParticleEmitterGpu in
+// particles.c. A particle with an anchor keeps its position and velocity in that anchor's space (the anchor is moved
+// and turned every frame, so the particle goes with it), anchor 0 means world space.
+#define RENDER_SHADER_PARTICLE_COMMON \
+    "struct Particle {\n" \
+    "    position: vec3f, age: f32,\n"         /* age and lifetime in seconds. age >= lifetime: dead (0, 0 too) */ \
+    "    velocity: vec3f, lifetime: f32,\n" \
+    "    size: f32, color_start: u32, color_end: u32, anchor: u32,\n" /* colors packed 8 bits each, rgba */ \
+    "};\n" \
+    "struct Anchor {\n" \
+    "    position: vec4f,\n" /* world */ \
+    "    rotation: vec4f,\n" /* quaternion x, y, z, w */ \
+    "};\n" \
+    "fn rotate(q: vec4f, v: vec3f) -> vec3f {\n" /* v turned by the unit quaternion q */ \
+    "    let t = 2.0 * cross(q.xyz, v);\n" \
+    "    return v + q.w * t + cross(q.xyz, t);\n" \
+    "}\n" \
+    "struct Emitter {\n" \
+    "    position: vec4f,\n"  /* w = cone, radians */ \
+    "    previous: vec4f,\n"  /* where it was last frame. w = size */ \
+    "    direction: vec4f,\n" /* w = speed */ \
+    "    velocity: vec4f,\n"  /* w = speed spread */ \
+    "    lifetime: f32, lifetime_spread: f32, anchor: u32, pad: u32,\n" /* anchor: 1 + its index, 0 = world */ \
+    "    first: u32, count: u32, color_start: u32, color_end: u32,\n" /* first: its first new particle this frame */ \
+    "};\n" \
+    "struct Frame {\n" \
+    "    view_proj: mat4x4f,\n" \
+    "    eye: vec4f,\n"          /* w = frame seconds */ \
+    "    camera_right: vec4f,\n" /* w = stretch, seconds of movement a streak shows */ \
+    "    camera_up: vec4f,\n"    /* w = share of velocity kept this frame (drag) */ \
+    "    capacity: u32, head: u32, spawn_total: u32, emitter_count: u32,\n" \
+    "    seed: u32, slot_count: u32, pad0: u32, pad1: u32,\n" \
+    "    anchors: array<Anchor, 64>,\n" \
+    "    emitters: array<Emitter, 16>,\n" \
+    "};\n" \
+    "@group(0) @binding(0) var<uniform> frame: Frame;\n"
+
+// Ages and moves every slot in the buffer (not just the ring in use, so slots left out when the ring shrinks still die)
+static const char render_shader_particle_move[] =
+    RENDER_SHADER_PARTICLE_COMMON
+    "@group(0) @binding(1) var<storage, read_write> particles: array<Particle>;\n"
+    "\n"
+    "@compute @workgroup_size(64) fn cs(@builtin(global_invocation_id) id: vec3u) {\n"
+    "    let i = id.x;\n"
+    "    if (i >= frame.slot_count) { return; }\n"
+    "    let age = particles[i].age;\n"
+    "    if (age >= particles[i].lifetime) { return; }\n" // dead: read 8 bytes, write nothing
+    "    let seconds = frame.eye.w;\n"
+    "    let velocity = particles[i].velocity * frame.camera_up.w;\n"
+    "    particles[i].velocity = velocity;\n"
+    "    particles[i].position = particles[i].position + velocity * seconds;\n"
+    "    particles[i].age = age + seconds;\n"
+    "}\n";
+
+// One thread per new particle. Spawns are spread along the emitter's path since last frame: the first one leaves
+// from where it was then and is a whole frame old, the last one leaves from where it is now, brand new.
+static const char render_shader_particle_spawn[] =
+    RENDER_SHADER_PARTICLE_COMMON
+    "@group(0) @binding(1) var<storage, read_write> particles: array<Particle>;\n"
+    "\n"
+    "fn hash(v: u32) -> u32 {\n" // PCG hash: any number in, a well mixed number out
+    "    let state = v * 747796405u + 2891336453u;\n"
+    "    let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;\n"
+    "    return (word >> 22u) ^ word;\n"
+    "}\n"
+    "fn random(state: ptr<function, u32>) -> f32 {\n" // 0..1
+    "    *state = hash(*state);\n"
+    "    return f32(*state >> 8u) / 16777216.0;\n"
+    "}\n"
+    "\n"
+    "@compute @workgroup_size(64) fn cs(@builtin(global_invocation_id) id: vec3u) {\n"
+    "    let i = id.x;\n"
+    "    if (i >= frame.spawn_total) { return; }\n"
+    "    var which = 0u;\n" // the emitter this particle belongs to. their first indexes go up
+    "    for (var k = 1u; k < frame.emitter_count; k++) { if (i >= frame.emitters[k].first) { which = k; } }\n"
+    "    let emitter = frame.emitters[which];\n"
+    "    var state = hash(i ^ frame.seed);\n"
+    "\n"
+    "    // a direction in the cone around the emitter's direction, spread evenly over the cone's cap\n"
+    "    let forward = emitter.direction.xyz;\n"
+    "    var helper = vec3f(0.0, 1.0, 0.0);\n"
+    "    if (abs(forward.y) > 0.99) { helper = vec3f(1.0, 0.0, 0.0); }\n"
+    "    let side = normalize(cross(helper, forward));\n"
+    "    let up = cross(forward, side);\n"
+    "    let cos_angle = mix(1.0, cos(emitter.position.w), random(&state));\n"
+    "    let sin_angle = sqrt(max(0.0, 1.0 - cos_angle * cos_angle));\n"
+    "    let around = random(&state) * 6.2831853;\n"
+    "    let direction = forward * cos_angle + (side * cos(around) + up * sin(around)) * sin_angle;\n"
+    "    let speed = emitter.direction.w + (random(&state) * 2.0 - 1.0) * emitter.velocity.w;\n"
+    "    let velocity = emitter.velocity.xyz + direction * speed;\n"
+    "\n"
+    "    let along = (f32(i - emitter.first) + random(&state)) / f32(emitter.count);\n" // 0 = last frame, 1 = now
+    "    let age = (1.0 - along) * frame.eye.w;\n"
+    "    let lifetime = max(0.01, emitter.lifetime + (random(&state) * 2.0 - 1.0) * emitter.lifetime_spread);\n"
+    "    let slot = (frame.head + i) % frame.capacity;\n"
+    "    var particle: Particle;\n"
+    "    if (emitter.anchor > 0u) {\n" // local: starts at the anchor (the nozzle), in its space, no velocity on top
+    "        let anchor = frame.anchors[emitter.anchor - 1u];\n"
+    "        let inverse = vec4f(-anchor.rotation.xyz, anchor.rotation.w);\n"
+    "        particle.velocity = rotate(inverse, direction * speed);\n"
+    "        particle.position = particle.velocity * age;\n"
+    "    } else {\n"
+    "        particle.velocity = velocity;\n"
+    "        particle.position = mix(emitter.previous.xyz, emitter.position.xyz, along) + velocity * age;\n"
+    "    }\n"
+    "    particle.anchor = emitter.anchor;\n"
+    "    particle.age = age;\n"
+    "    particle.lifetime = lifetime;\n"
+    "    particle.size = emitter.previous.w;\n"
+    "    particle.color_start = emitter.color_start;\n"
+    "    particle.color_end = emitter.color_end;\n"
+    "    particles[slot] = particle;\n"
+    "}\n";
+
+// One instance per slot in the ring, 4 corners each (a strip). A square facing the camera, stretched into a streak
+// along the velocity, with a soft round glow. Dead slots collapse to a point off screen. Drawn added up (additive),
+// depth tested but not written, so the order does not matter.
+static const char render_shader_particle_draw[] =
+    RENDER_SHADER_PARTICLE_COMMON
+    "@group(0) @binding(1) var<storage, read> particles: array<Particle>;\n"
+    "\n"
+    "struct VOut {\n"
+    "    @builtin(position) position: vec4f,\n"
+    "    @location(0) corner: vec2f,\n"
+    "    @location(1) color: vec4f,\n"
+    "};\n"
+    "\n"
+    "@vertex fn vs(@builtin(vertex_index) corner_index: u32, @builtin(instance_index) slot: u32) -> VOut {\n"
+    "    var o: VOut;\n"
+    "    let particle = particles[slot];\n"
+    "    if (particle.age >= particle.lifetime) {\n"
+    "        o.position = vec4f(2.0, 2.0, 2.0, 1.0);\n"
+    "        return o;\n"
+    "    }\n"
+    "    var position = particle.position;\n"
+    "    var velocity = particle.velocity;\n"
+    "    if (particle.anchor > 0u) {\n" // from the anchor's space into the world, where the anchor is this frame
+    "        let anchor = frame.anchors[particle.anchor - 1u];\n"
+    "        position = anchor.position.xyz + rotate(anchor.rotation, position);\n"
+    "        velocity = rotate(anchor.rotation, velocity);\n"
+    "    }\n"
+    "    let corner = vec2f(f32(corner_index & 1u), f32(corner_index >> 1u)) * 2.0 - 1.0;\n"
+    "    var along = frame.camera_right.xyz;\n"
+    "    var across = frame.camera_up.xyz;\n"
+    "    var half_length = particle.size;\n"
+    "    let speed = length(velocity);\n"
+    "    let streak = speed * frame.camera_right.w;\n"
+    "    if (streak > particle.size * 0.1) {\n"
+    "        let direction = velocity / speed;\n"
+    "        let sideways = cross(direction, normalize(frame.eye.xyz - position));\n"
+    "        if (dot(sideways, sideways) > 0.0001) {\n" // not flying straight at the camera
+    "            along = direction;\n"
+    "            across = normalize(sideways);\n"
+    "            half_length = particle.size + streak * 0.5;\n"
+    "        }\n"
+    "    }\n"
+    "    let world = position + along * corner.x * half_length + across * corner.y * particle.size;\n"
+    "    o.position = frame.view_proj * vec4f(world, 1.0);\n"
+    "    o.corner = corner;\n"
+    "    let life = particle.age / particle.lifetime;\n"
+    "    let color = mix(unpack4x8unorm(particle.color_start), unpack4x8unorm(particle.color_end), life);\n"
+    "    o.color = vec4f(color.rgb, color.a * (1.0 - life));\n"
+    "    return o;\n"
+    "}\n"
+    "\n"
+    "@fragment fn fs(i: VOut) -> @location(0) vec4f {\n"
+    "    let fade = max(0.0, 1.0 - dot(i.corner, i.corner));\n"
+    "    return vec4f(i.color.rgb, i.color.a * fade * fade);\n"
+    "}\n";

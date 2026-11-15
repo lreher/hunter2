@@ -9,9 +9,11 @@ const writes = new WeakMap(); // fake buffer -> last data written to it
 const slots = [];             // {buffer, offset} bound to vertex slots
 let depthPass = false;        // draws in a depth pass (the shadow map) are not what the camera sees
 export const draws = [];      // "vertexCount,instanceCount" per draw call
+export const dispatches = []; // "x,y,z" per compute dispatch
 export let spheres = [];      // {x, y, z, r} drawn in the last screen pass, all levels of detail
 export let camera = null;     // floats last written to the scene uniform (view_proj, light, eye, ...)
 const uniforms = new WeakSet(); // fake buffers made with the UNIFORM usage flag
+export const hooks = { write: null }; // hooks.write(buffer, floats) sees every buffer write, for scripts that need one
 
 const fake = (name) => new Proxy(function () {}, {
   get(_, p) {
@@ -26,12 +28,14 @@ const fake = (name) => new Proxy(function () {}, {
     if (m === "writeBuffer") {
       const data = new Float32Array(args[2].slice(args[3], args[3] + args[4]));
       writes.set(args[0], data);
+      if (hooks.write) hooks.write(args[0], data);
       if (uniforms.has(args[0])) camera = data;
     }
     if (m === "beginRenderPass") {
       depthPass = args[0].colorAttachments.length === 0;
       if (!depthPass) spheres = [];
     }
+    if (m === "dispatchWorkgroups") dispatches.push(args.join(","));
     if (m === "setVertexBuffer") slots[args[0]] = { buffer: args[1], offset: args[2] ?? 0 };
     if (m === "draw") {
       draws.push(args.join(","));

@@ -1,8 +1,9 @@
 // Keyboard and mouse state for C to poll. Key order must match the KEY_ enum in src/platform/input.h.
 import { fail } from "./env.js";
 
-const KEY_NAMES = ["Space", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "ShiftLeft", "KeyO", "BracketLeft", "BracketRight", "KeyR", "Backspace"];
-const KEY_ALIASES = { ShiftRight: "ShiftLeft" }; // both shift keys count as one
+const KEY_NAMES = ["Space", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "ShiftLeft", "KeyO", "BracketLeft", "BracketRight", "KeyR", "Backspace", "ControlLeft", "MouseRight"];
+const KEY_ALIASES = { ShiftRight: "ShiftLeft", ControlRight: "ControlLeft" }; // both shift keys count as one, both control keys too
+const MOUSE_RIGHT = KEY_NAMES.indexOf("MouseRight"); // the right mouse button, held like a key
 
 export function createInput(canvas) {
     const down = new Uint8Array(KEY_NAMES.length);
@@ -28,12 +29,22 @@ export function createInput(canvas) {
     // we would never see the keyup if the window loses focus while a key is held
     window.addEventListener("blur", () => down.fill(0));
 
-    // click locks the mouse to the canvas, click again lets it go (Esc also does, the browser decides that)
+    // left click locks the mouse to the canvas (does nothing while locked), Esc lets it go (the browser does that
+    // itself, a page cannot change it). The right button is held like a key (MouseRight). No browser menu on
+    // right click over the canvas.
     const locked = () => document.pointerLockElement === canvas;
     canvas.addEventListener("click", () => {
-        if (locked()) document.exitPointerLock();
-        else canvas.requestPointerLock()?.catch?.(() => {}); // the browser refuses a relock right after Esc, that is fine
+        if (!locked()) canvas.requestPointerLock()?.catch?.(() => {}); // the browser refuses a relock right after Esc, that is fine
     });
+    canvas.addEventListener("mousedown", (e) => {
+        if (e.button !== 2) return;
+        if (!down[MOUSE_RIGHT]) pressed[MOUSE_RIGHT] = 1;
+        down[MOUSE_RIGHT] = 1;
+    });
+    window.addEventListener("mouseup", (e) => {
+        if (e.button === 2) down[MOUSE_RIGHT] = 0;
+    });
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     window.addEventListener("mousemove", (e) => {
         if (!locked()) return;
         mouseDx += e.movementX;

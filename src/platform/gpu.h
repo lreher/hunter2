@@ -26,14 +26,19 @@ enum { GPU_STEP_VERTEX, GPU_STEP_INSTANCE };
 enum { GPU_TOPOLOGY_TRIANGLE_LIST, GPU_TOPOLOGY_TRIANGLE_STRIP, GPU_TOPOLOGY_LINE_LIST };
 enum { GPU_BLEND_NONE, GPU_BLEND_ALPHA, GPU_BLEND_ADDITIVE };
 enum { GPU_FILTER_NEAREST, GPU_FILTER_LINEAR, GPU_FILTER_SHADOW }; // SHADOW: linear, compares depth (sampler_comparison)
-enum { GPU_BIND_UNIFORM, GPU_BIND_TEXTURE, GPU_BIND_SAMPLER, GPU_BIND_STORAGE }; // STORAGE: read only storage buffer
-// every frame has a depth buffer. OFF draws over everything (2D overlay), ON tests and writes it (3D)
-enum { GPU_DEPTH_OFF, GPU_DEPTH_ON };
+// STORAGE: a storage buffer. read only or read_write is whatever the shader declares (layouts are "auto").
+// read_write only in compute shaders: WebGPU does not let vertex or fragment shaders write storage buffers
+enum { GPU_BIND_UNIFORM, GPU_BIND_TEXTURE, GPU_BIND_SAMPLER, GPU_BIND_STORAGE };
+// every frame has a depth buffer. OFF draws over everything (2D overlay), ON tests and writes it (3D),
+// TEST only tests it: hidden behind solid things, but never hides anything itself (glowing particles)
+enum { GPU_DEPTH_OFF, GPU_DEPTH_ON, GPU_DEPTH_TEST };
 enum { GPU_CULL_NONE, GPU_CULL_BACK, GPU_CULL_FRONT }; // BACK skips triangles facing away (counter clockwise = front)
 
 // Descriptors are plain structs of i32 that JS reads straight from wasm memory.
 // JS checks the size, so a layout mismatch fails loudly.
-// Shader entry points are always named "vs" and "fs".
+// Shader entry points are always named "vs" and "fs", and "cs" for compute shaders.
+// A pipeline with buffer_count 0 has no vertex buffers: its shader reads what it needs by vertex_index and
+// instance_index, from storage buffers.
 
 #define GPU_MAX_ATTRIBUTES 8
 #define GPU_MAX_VERTEX_BUFFERS 2
@@ -81,6 +86,7 @@ typedef struct {
 typedef struct {
     i32 calls;
     i32 draws;
+    i32 dispatches;
     i32 upload_bytes;
 } PlatGpuStats;
 extern PlatGpuStats plat_gpu_stats;
@@ -90,20 +96,24 @@ GpuHandle plat_gpu_create_buffer(i32 size, i32 usage);
 GpuHandle plat_gpu_create_texture(i32 w, i32 h, i32 format, i32 usage);
 GpuHandle plat_gpu_create_sampler(i32 filter);
 GpuHandle plat_gpu_create_pipeline(const GpuPipelineDesc *desc);
-GpuHandle plat_gpu_create_bind_group(const GpuBindGroupDesc *desc);
+GpuHandle plat_gpu_create_compute_pipeline(GpuHandle shader); // entry point "cs", layout from the shader
+GpuHandle plat_gpu_create_bind_group(const GpuBindGroupDesc *desc); // desc.pipeline: a render or a compute pipeline
 void plat_gpu_destroy(GpuHandle h);
 
 void plat_gpu_write_buffer(GpuHandle buffer, i32 offset, const void *data, i32 size);
 void plat_gpu_write_texture(GpuHandle texture, const void *data, i32 w, i32 h, i32 bytes_per_row);
 
-// one frame = one or more passes, draws go to the open pass. each begin_*_pass ends the pass before it
+// one frame = one or more passes, draws go to the open pass. each begin_*_pass ends the pass before it.
+// passes run on the GPU in the order they are begun, so a compute pass before the screen pass is done before it draws
 void plat_gpu_begin_frame(void);
+void plat_gpu_begin_compute_pass(void);                  // only compute pipelines and dispatches here
 void plat_gpu_begin_depth_pass(GpuHandle depth_texture); // clears it to 1, only DEPTH pipelines draw here
 void plat_gpu_begin_screen_pass(f32 r, f32 g, f32 b);    // clears the screen and its depth buffer
-void plat_gpu_set_pipeline(GpuHandle pipeline);
+void plat_gpu_set_pipeline(GpuHandle pipeline);          // render pipeline in a render pass, compute pipeline in a compute pass
 void plat_gpu_set_bind_group(i32 group, GpuHandle bind_group);
 void plat_gpu_set_vertex_buffer(i32 slot, GpuHandle buffer, i32 offset);
 void plat_gpu_draw(i32 vertex_count, i32 instance_count);
+void plat_gpu_dispatch(i32 groups_x, i32 groups_y, i32 groups_z); // workgroups per axis, each at most 65535
 void plat_gpu_end_frame(void);
 
 #endif

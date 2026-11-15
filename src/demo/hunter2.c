@@ -4,11 +4,11 @@
 #include "demo/demo.h"
 
 // hunter2: the game (focus/game.md). For now the ship, its chase camera and a debug grid to see it move.
-// Click the canvas to lock the mouse, then the mouse moves the aim and the ship turns toward it, W/S thrust, A/D yaw, Q/E roll
+// Click the canvas to lock the mouse, then the mouse moves the aim and the ship turns toward it, W/S thrust, A/D side thrust, Q/E roll, Shift/Control thrust up/down, Space boost, right mouse button drift, Esc lets the mouse go
 // (mapping in ship_read_input). Backspace: free fly camera and back.
 
 #define HUNTER2_GRID_SPACING 10.0f // m
-#define HUNTER2_GRID_LINES 21      // per direction
+#define HUNTER2_GRID_LINES 41      // per direction (400 m across)
 #define HUNTER2_GRID_HEIGHT -5.0f  // m, y of the grid plane
 
 static i32 hunter2_grid = 1; // panel: debug grid on or off
@@ -49,13 +49,20 @@ FORCE_INLINE void hunter2_draw(f32 alpha, f32 seconds, f32 hud_top) {
     render_set_shadow_area(vector3_subtracted(position, around), vector3_added(position, around));
     if (hunter2_grid) hunter2_draw_grid(position);
     ship_draw(alpha);
+    ship_draw_exhaust(alpha);
     ship_draw_hint();
     ship_draw_marks(alpha);
 
-    char line[64];
+    char line[128];
     line[0] = 0;
     str_append(line, sizeof(line), "speed m/s: ");
     str_append_i32(line, sizeof(line), (i32)(vector3_magnitude(ship.particle.velocity) + 0.5f));
+    if (!demo_free_camera && plat_key_down(KEY_MOUSE_RIGHT)) str_append(line, sizeof(line), "  drift");
+    else if (!demo_free_camera && plat_key_down(KEY_SPACE) && plat_key_down(KEY_W)) str_append(line, sizeof(line), "  boost");
+    str_append(line, sizeof(line), "  thrust N ");
+    str_append_i32(line, sizeof(line), (i32)ship.thrust.z);
+    str_append(line, sizeof(line), "  particles ~");
+    str_append_i32(line, sizeof(line), render_particle_estimate());
     render_draw_text(line, 16, hud_top, 2, 0.8f, 0.8f, 0.8f);
 }
 

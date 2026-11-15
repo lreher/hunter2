@@ -12,40 +12,62 @@
 //      (ShipAimTuning). Two marks on screen: where the nose points, and the aim.
 //   1. ship_read_input, every physics step: how far the nose is off the aim, and keys -> ShipInput. Mapping here.
 //   2. ship_step: ShipInput + ShipTuning -> forces and turning. Change the flight model here.
-//   3. ship_camera_step: the chase camera follows. Its numbers are in ShipCameraTuning.
+//   3. ship_camera_step: the chase camera's turning follows the ship's. Its numbers are in ShipCameraTuning.
 // Every number that shapes the feel is in ship_tuning and ship_camera_tuning, and on the panel as sliders.
 
 // What the pilot asks for this step. Each axis -1..1, turning at the ShipTuning turn speeds.
 // Keys, the mouse aim and a gamepad stick later all fill it the same way.
 typedef struct {
     real thrust; // 1 = full forward, -1 = full reverse
+    real side;   // 1 = full thrust to the right, -1 = to the left
+    real lift;   // 1 = full thrust up (the ship's up), -1 = down
     real pitch;  // 1 = nose up
     real yaw;    // 1 = nose right
     real roll;   // 1 = right wing down
+    i32 drift;   // 1 = drift: no thrust at all, less drag, the ship keeps its speed while it turns
+    i32 boost;   // 1 = boost: forward thrust up by ShipTuning.boost %
 } ShipInput;
 
 // How the ship drives. The defaults below are the starting point, the panel changes them live.
 typedef struct {
     real mass;           // kg. with thrust, sets the acceleration: thrust / mass
     real thrust;         // N, forward
+    real boost;          // %, extra forward thrust while boosting. 50 = 1.5 times thrust
     real reverse_thrust; // N, backward
+    real side_thrust;    // N, left or right (side thrusters, the nose keeps pointing the same way)
+    real lift_thrust;    // N, up or down, along the ship's up
     real drag;           // share of speed lost per second. 0 = real space, it drifts forever.
                          // top speed is where drag cancels thrust: (thrust / mass) / drag
     real pitch_speed;    // rad/s at full input
     real yaw_speed;      // rad/s
     real roll_speed;     // rad/s
     real turn_response;  // per second, how fast turning catches up with the input. high = snappy, low = heavy
+    real thrust_response; // per second, how fast each thruster's force catches up with what the keys ask. high = instant
+    real engine_cutoff;   // %, of a thruster's full force: it never runs weaker. it lights straight at this and goes out below it
+    real drift_drag_cut; // %, how much less drag while drifting. 100 = none, it keeps all its speed
+    // auto level: while Q/E are not pressed, the ship rolls itself upright (up = the grid's up)
+    real level_angle;    // radians of tilt that ask for level_strength. less tilt, gentler
+    real level_strength; // share of roll speed used for leveling, 0..1
 } ShipTuning;
 
+// defaults = the user's saved panel settings, 2026-11-14
 static ShipTuning ship_tuning = {
     .mass = 1000,
-    .thrust = 20000,         // 20 m/s^2
-    .reverse_thrust = 10000, // 10 m/s^2
-    .drag = 0.5f,            // top speed 40 m/s
-    .pitch_speed = 1.5f,
-    .yaw_speed = 1.0f,
-    .roll_speed = 2.5f,
-    .turn_response = 6,
+    .thrust = 70000,         // 70 m/s^2
+    .boost = 150,            // 175 m/s^2 while boosting
+    .reverse_thrust = 45000, // 45 m/s^2
+    .side_thrust = 34500,    // 34.5 m/s^2
+    .lift_thrust = 30000,    // 30 m/s^2
+    .drag = 0.5f,            // top speed 140 m/s, 350 boosting
+    .pitch_speed = 2.2f,
+    .yaw_speed = 2.3f,
+    .roll_speed = 3.2f,
+    .turn_response = 11.8f,
+    .thrust_response = 4, // 63 % in 0.25 s, 95 % in 0.75 s
+    .engine_cutoff = 10,
+    .drift_drag_cut = 80, // drag 0.5 -> 0.1 per second
+    .level_angle = 0.8f,
+    .level_strength = 0.5f,
 };
 
 // Mouse aim: the mouse moves an aim (a direction), and the ship turns toward it at its own turn speeds.
@@ -65,18 +87,19 @@ static ShipAimTuning ship_aim_tuning = {
     .invert_pitch = 0,
 };
 
-// The chase camera: behind and above the ship, in the ship's own axes, catching up with it smoothly.
+// The chase camera: always behind and above the ship at the same distance, so speeding up never drags it off.
+// Only its turning lags: it turns after the ship, so a turn shows, but it always looks the way the ship does.
 typedef struct {
     real distance;   // m behind the ship
     real height;     // m above it
     real look_ahead; // m in front of the ship that the camera looks at
-    real follow;     // per second, how fast the camera catches up. high = stiff, low = loose and trailing
+    real follow;     // per second, how fast the camera's turning catches up with the ship's. high = stiff, low = loose
 } ShipCameraTuning;
 
 static ShipCameraTuning ship_camera_tuning = {
     .distance = 6,
-    .height = 1.8f,
-    .look_ahead = 4,
+    .height = 2.4f,
+    .look_ahead = 7.9f,
     .follow = 5,
 };
 
@@ -86,15 +109,51 @@ typedef struct {
     Quaternion rotation;
     Quaternion previous_rotation;
     Vector3 turn;               // turn speed now, rad/s in the ship's own axes: x pitch, y yaw, z roll
+    Vector3 thrust;             // thruster force now, N in the ship's own axes: x side (+ right), y lift (+ up),
+                                // z forward (+ forward, - reverse, boost included). eases toward what the keys ask
 } Ship;
 
 typedef struct {
-    Vector3 eye, previous_eye;
-    Vector3 up, previous_up;    // follows the ship's up, so a roll tilts the view
+    Quaternion rotation, previous_rotation; // trails the ship's rotation. a roll tilts the view too
 } ShipCamera;
 
 static Ship ship;
 static ShipCamera ship_camera;
+// Thruster exhaust: one emitter per thruster, each fires with its own input (ship_draw_exhaust).
+// Every nozzle shoots against the push it gives: the main thruster pushes forward, so it shoots out the back.
+typedef struct {
+    Vector3 position;  // ship axes, m (nose -z, y up, right wing +x)
+    Vector3 direction; // ship axes, unit: the way the exhaust leaves
+} ShipNozzle;
+
+enum { SHIP_NOZZLE_MAIN, SHIP_NOZZLE_REVERSE, SHIP_NOZZLE_RIGHT, SHIP_NOZZLE_LEFT, SHIP_NOZZLE_UP, SHIP_NOZZLE_DOWN,
+       SHIP_NOZZLE_COUNT }; // named after the push: SHIP_NOZZLE_RIGHT pushes the ship right
+
+static const ShipNozzle ship_nozzles[SHIP_NOZZLE_COUNT] = {
+    [SHIP_NOZZLE_MAIN] = {{0, 0.03f, 0.65f}, {0, 0, 1}},     // middle of the back face, out the back
+    [SHIP_NOZZLE_REVERSE] = {{0, 0, -1.25f}, {0, 0, -1}},    // tip of the nose, out the front
+    [SHIP_NOZZLE_RIGHT] = {{-0.95f, 0, 0.6f}, {-1, 0, 0}},   // left wing tip, out to the left
+    [SHIP_NOZZLE_LEFT] = {{0.95f, 0, 0.6f}, {1, 0, 0}},      // right wing tip, out to the right
+    [SHIP_NOZZLE_UP] = {{0, -0.25f, 0.5f}, {0, -1, 0}},      // the keel, out the bottom
+    [SHIP_NOZZLE_DOWN] = {{0, 0.35f, 0.45f}, {0, 1, 0}},     // the top ridge, out the top
+};
+
+// How every nozzle's exhaust looks (panel group particles). rate, speed and cone are the main thruster at full,
+// each nozzle scales them by its thrust share (ship_draw_exhaust)
+static RenderEmitter ship_exhaust = {
+    .rate = 20000,
+    .speed = 90,
+    .speed_spread = 5,
+    .cone = 0.15f,
+    .lifetime = 1.0f,
+    .lifetime_spread = 1.55f,
+    .size = 0.05f,
+    .color_start = {1.0f, 0.9f, 0.6f},
+    .color_end = {1.0f, 0.3f, 0.05f},
+};
+static f32 ship_base_speed = 30; // m/s, spark speed at no thrust: speed = base + (look speed - base) * share (user: always some speed)
+static f32 ship_cone_squeeze = 0.3f; // how much more thrust narrows the cone: cone / (1 + squeeze * (share - 1)). 0 = never
+static RenderEmitter ship_nozzle_emitters[SHIP_NOZZLE_COUNT]; // the look above, plus each one's own memory
 static Vector3 ship_aim; // unit direction, world axes: where the pilot wants the nose
 static RenderModel ship_model = -1; // built once, kept across demo switches
 
@@ -116,28 +175,42 @@ static void ship_build_model(void) {
 static Vector3 ship_forward(void) { return quaternion_rotated_vector(ship.rotation, vector3_create(0, 0, -1)); }
 static Vector3 ship_up(void) { return quaternion_rotated_vector(ship.rotation, vector3_create(0, 1, 0)); }
 
-// where the chase camera wants to be: behind and above, in the ship's axes
-static Vector3 ship_camera_goal(void) {
-    Vector3 offset = vector3_create(0, ship_camera_tuning.height, ship_camera_tuning.distance);
-    return vector3_added(ship.particle.position, quaternion_rotated_vector(ship.rotation, offset));
-}
 
 // The panel: what changes how it flies, and the camera. Mass is left out (only thrust / mass matters, so thrust
 // covers it) and so is the aim (ShipAimTuning): change those in code.
 static void ship_add_sliders(void) {
     plat_ui_group("flight");
-    plat_ui_slider_log("thrust N", 1000, 200000, 100, &ship_tuning.thrust);
-    plat_ui_slider_log("reverse N", 100, 200000, 100, &ship_tuning.reverse_thrust);
+    plat_ui_slider("thrust N", 0, 100000, 500, &ship_tuning.thrust);
+    plat_ui_slider("boost %", 0, 300, 1, &ship_tuning.boost);
+    plat_ui_slider("reverse N", 0, 100000, 500, &ship_tuning.reverse_thrust);
+    plat_ui_slider("side N", 0, 100000, 500, &ship_tuning.side_thrust);
+    plat_ui_slider("up/down N", 0, 100000, 500, &ship_tuning.lift_thrust);
     plat_ui_slider("drag /s", 0, 3, 0.01f, &ship_tuning.drag);
     plat_ui_slider("pitch rad/s", 0.1f, 6, 0.05f, &ship_tuning.pitch_speed);
     plat_ui_slider("yaw rad/s", 0.1f, 6, 0.05f, &ship_tuning.yaw_speed);
     plat_ui_slider("roll rad/s", 0.1f, 8, 0.05f, &ship_tuning.roll_speed);
-    plat_ui_slider_log("turn response /s", 0.5f, 50, 0.1f, &ship_tuning.turn_response);
+    plat_ui_slider("turn response /s", 0.5f, 30, 0.1f, &ship_tuning.turn_response);
+    plat_ui_slider("thrust response /s", 0.5f, 30, 0.1f, &ship_tuning.thrust_response);
+    plat_ui_slider("engine cutoff %", 0, 50, 1, &ship_tuning.engine_cutoff);
+    plat_ui_slider("drift drag cut %", 0, 100, 1, &ship_tuning.drift_drag_cut);
     plat_ui_group("camera");
     plat_ui_slider("distance m", 1, 30, 0.1f, &ship_camera_tuning.distance);
     plat_ui_slider("height m", -5, 10, 0.1f, &ship_camera_tuning.height);
     plat_ui_slider("look ahead m", 0, 30, 0.1f, &ship_camera_tuning.look_ahead);
-    plat_ui_slider_log("follow /s", 0.5f, 50, 0.1f, &ship_camera_tuning.follow);
+    plat_ui_slider("follow /s", 0.5f, 30, 0.1f, &ship_camera_tuning.follow);
+    plat_ui_group("particles");
+    plat_ui_slider_log("max particles", 1024, 1048576, 1024, &render_particle_tuning.capacity); // log (user)
+    plat_ui_slider_log("rate /s", 100, 1000000, 100, &ship_exhaust.rate); // log (user), so no 0. the main thruster at full
+    plat_ui_slider("life s", 0.05f, 10, 0.05f, &ship_exhaust.lifetime);
+    plat_ui_slider("life spread s", 0, 5, 0.05f, &ship_exhaust.lifetime_spread);
+    plat_ui_slider("speed m/s", 0, 200, 0.5f, &ship_exhaust.speed); // the main thruster at full, others scale by force
+    plat_ui_slider("base speed m/s", 0, 200, 0.5f, &ship_base_speed);
+    plat_ui_slider("speed spread m/s", 0, 100, 0.5f, &ship_exhaust.speed_spread);
+    plat_ui_slider("cone rad", 0, 3.14f, 0.01f, &ship_exhaust.cone); // the main thruster at full
+    plat_ui_slider("cone squeeze", 0, 1, 0.01f, &ship_cone_squeeze);
+    plat_ui_slider("size m", 0.005f, 1, 0.005f, &ship_exhaust.size);
+    plat_ui_slider("streak s", 0, 0.2f, 0.002f, &render_particle_tuning.stretch);
+    plat_ui_slider("particle drag /s", 0, 10, 0.05f, &render_particle_tuning.drag);
 }
 
 static void ship_init(Vector3 position) {
@@ -149,8 +222,9 @@ static void ship_init(Vector3 position) {
     ship.rotation = ship.previous_rotation = quaternion_identity();
     ship.turn = vector3_zero();
     ship_aim = ship_forward();
-    ship_camera.eye = ship_camera.previous_eye = ship_camera_goal();
-    ship_camera.up = ship_camera.previous_up = ship_up();
+    ship_camera.rotation = ship_camera.previous_rotation = ship.rotation;
+    for (i32 i = 0; i < SHIP_NOZZLE_COUNT; i++) ship_nozzle_emitters[i].memory.started = 0; // the ship jumped: no trail from where it was
+    ship.thrust = vector3_zero();
     ship_add_sliders();
 }
 
@@ -162,8 +236,7 @@ static void ship_update_aim(void) {
         ship_aim = forward;
         return;
     }
-    Vector3 up = ship_camera.up;
-    vector3_normalize(&up);
+    Vector3 up = quaternion_rotated_vector(ship_camera.rotation, vector3_create(0, 1, 0));
     Vector3 right = vector3_vector_product(ship_aim, up);
     vector3_normalize(&right);
     real sensitivity = ship_aim_tuning.sensitivity;
@@ -186,7 +259,8 @@ static void ship_update_aim(void) {
 
 static real ship_clamp_unit(real value) { return value > 1 ? 1 : value < -1 ? -1 : value; }
 
-// Mapping: nose toward the aim (pitch, yaw), W/S thrust, A/D yaw, Q/E roll. Nothing while the free camera is on.
+// Mapping: nose toward the aim (pitch, yaw), W/S thrust, A/D side thrust, Q/E roll, Shift/Control thrust up/down, Space boost,
+// right mouse button drift. Nothing while the free camera is on.
 static ShipInput ship_read_input(void) {
     ShipInput input = {0};
     if (demo_free_camera) return input;
@@ -195,14 +269,40 @@ static ShipInput ship_read_input(void) {
     real aim_right = vector3_scalar_product(ship_aim, right);
     real aim_up = vector3_scalar_product(ship_aim, ship_up());
     real aim_ahead = vector3_scalar_product(ship_aim, ship_forward());
-    input.pitch = f32_atan2(aim_up, aim_ahead) / ship_aim_tuning.full_turn_angle;
-    input.yaw = f32_atan2(aim_right, aim_ahead) / ship_aim_tuning.full_turn_angle;
+    // one turn, straight at the aim: (aim_right, aim_up) is the way the nose has to go, the angle off sets how hard.
+    // pitch and yaw speeds differ, so the top speed in that direction is on the ellipse between them:
+    // speed = 1 / sqrt((up / pitch_speed)^2 + (right / yaw_speed)^2) for the unit direction (right, up).
+    // both inputs then get the same share of it, so the turn keeps its direction and the path stays straight
+    real off_length = real_sqrt(aim_right * aim_right + aim_up * aim_up);
+    if (off_length > 1e-6f) {
+        real up = aim_up / off_length, right_part = aim_right / off_length;
+        real share = f32_atan2(off_length, aim_ahead) / ship_aim_tuning.full_turn_angle;
+        if (share > 1) share = 1;
+        real per_pitch = up / ship_tuning.pitch_speed, per_yaw = right_part / ship_tuning.yaw_speed;
+        real speed = 1 / real_sqrt(per_pitch * per_pitch + per_yaw * per_yaw);
+        input.pitch = per_pitch * speed * share; // = up * speed * share / pitch_speed
+        input.yaw = per_yaw * speed * share;
+    }
     if (plat_key_down(KEY_W)) input.thrust += 1;
     if (plat_key_down(KEY_S)) input.thrust -= 1;
-    if (plat_key_down(KEY_D)) input.yaw += 1;
-    if (plat_key_down(KEY_A)) input.yaw -= 1;
+    if (plat_key_down(KEY_D)) input.side += 1;
+    if (plat_key_down(KEY_A)) input.side -= 1;
+    if (plat_key_down(KEY_SHIFT)) input.lift += 1;
+    if (plat_key_down(KEY_CONTROL)) input.lift -= 1;
+    input.drift = plat_key_down(KEY_MOUSE_RIGHT); // thrust keys keep being read: let go and they fire right away
+    input.boost = plat_key_down(KEY_SPACE);
     if (plat_key_down(KEY_E)) input.roll += 1;
     if (plat_key_down(KEY_Q)) input.roll -= 1;
+    if (input.roll == 0) { // auto level
+        // the grid's up as the ship sees it, looking down its nose: how far it is tilted to the right of the ship's up.
+        // pointing straight up or down there is no tilt to fix, so it fades out by how level the nose is
+        Vector3 world_up = vector3_create(0, 1, 0);
+        Vector3 forward = ship_forward();
+        Vector3 across = vector3_subtracted(world_up, vector3_multiplied(forward, vector3_scalar_product(world_up, forward)));
+        real level = vector3_magnitude(across); // 1 = nose level, 0 = straight up or down
+        real tilt = f32_atan2(vector3_scalar_product(across, right), vector3_scalar_product(across, ship_up()));
+        input.roll = ship_clamp_unit(tilt / ship_tuning.level_angle) * ship_tuning.level_strength * level;
+    }
     input.pitch = ship_clamp_unit(input.pitch);
     input.yaw = ship_clamp_unit(input.yaw);
     return input;
@@ -210,6 +310,7 @@ static ShipInput ship_read_input(void) {
 
 // the two marks, far out along the nose and the aim: a cross where the nose points, a dot for the aim
 #define SHIP_MARK_DISTANCE 200.0f // m
+#define SHIP_SHOW_AIM 0           // 1 = draw the aim dot. hidden for now (user), the cross still follows it
 static void ship_draw_marks(f32 alpha) {
     if (demo_free_camera || !plat_mouse_locked()) return;
     Vector3 position = vector3_lerp(ship.previous_position, ship.particle.position, alpha);
@@ -223,7 +324,7 @@ static void ship_draw_marks(f32 alpha) {
         render_draw_rect(x - width / 2, y - arm, width, arm - 3, 0.9f, 0.95f, 1, 0.8f);
         render_draw_rect(x - width / 2, y + 3, width, arm - 3, 0.9f, 0.95f, 1, 0.8f);
     }
-    if (render_world_to_screen(vector3_added(position, vector3_multiplied(ship_aim, SHIP_MARK_DISTANCE)), &x, &y)) {
+    if (SHIP_SHOW_AIM && render_world_to_screen(vector3_added(position, vector3_multiplied(ship_aim, SHIP_MARK_DISTANCE)), &x, &y)) {
         render_draw_circle(x, y, 4, 1, 0.75f, 0.3f, 0.95f);
     }
 }
@@ -237,7 +338,17 @@ static void ship_draw_hint(void) {
     render_draw_text(hint, x, y, scale, 0.6f, 0.6f, 0.7f);
 }
 
-// The flight model: thrust along the nose, drag, and turn speeds that ease toward what the input asks for.
+// One thruster axis (N, signed): eases toward wanted, but never runs weaker than cutoff (N): when the keys ask for
+// more it lights straight at cutoff, when they ask for less it goes out once it drops below it
+static real ship_thruster_ease(real now, real wanted, real catch_up, real cutoff) {
+    now += (wanted - now) * catch_up;
+    real size = now < 0 ? -now : now;
+    real wanted_size = wanted < 0 ? -wanted : wanted;
+    if (size < cutoff) now = wanted_size >= cutoff ? (wanted > 0 ? cutoff : -cutoff) : 0;
+    return now;
+}
+
+// The flight model: thrust along the nose, side thrust along the wings, drag, and turn speeds that ease toward what the input asks for.
 FORCE_INLINE void ship_step(ShipInput input, real time_step) {
     ShipTuning *tuning = &ship_tuning;
     ship.previous_position = ship.particle.position;
@@ -252,23 +363,45 @@ FORCE_INLINE void ship_step(ShipInput input, real time_step) {
     vector3_add_scaled(&ship.turn, vector3_subtracted(wanted, ship.turn), catch_up);
     quaternion_add_rotation(&ship.rotation, quaternion_rotated_vector(ship.rotation, ship.turn), time_step);
 
-    // thrust along the nose. drag as damping: the share of velocity kept this step
-    real thrust = input.thrust > 0 ? tuning->thrust : tuning->reverse_thrust;
+    // drift: all thrusters off, drag cut
+    real drag = tuning->drag;
+    if (input.drift) {
+        input.thrust = 0;
+        input.side = 0;
+        input.lift = 0;
+        drag *= 1 - tuning->drift_drag_cut / 100;
+    }
+
+    // the force the keys ask for, then each thruster's force eases toward it (like turning above)
+    real forward = input.thrust > 0 ? tuning->thrust : tuning->reverse_thrust;
+    if (input.thrust > 0 && input.boost) forward *= 1 + tuning->boost / 100;
+    Vector3 wanted_thrust = vector3_create(input.side * tuning->side_thrust, input.lift * tuning->lift_thrust,
+                                           input.thrust * forward);
+    real thrust_catch_up = tuning->thrust_response * time_step;
+    if (thrust_catch_up > 1) thrust_catch_up = 1;
+    real cutoff = tuning->engine_cutoff / 100; // share of each thruster's full force
+    real forward_full = (wanted_thrust.z != 0 ? wanted_thrust.z : ship.thrust.z) >= 0 ? tuning->thrust : tuning->reverse_thrust;
+    ship.thrust.x = ship_thruster_ease(ship.thrust.x, wanted_thrust.x, thrust_catch_up, tuning->side_thrust * cutoff);
+    ship.thrust.y = ship_thruster_ease(ship.thrust.y, wanted_thrust.y, thrust_catch_up, tuning->lift_thrust * cutoff);
+    ship.thrust.z = ship_thruster_ease(ship.thrust.z, wanted_thrust.z, thrust_catch_up, forward_full * cutoff);
+
+    // thrust along the nose, the right wing and the ship's up. drag as damping: the share of velocity kept this step
     particle_set_mass(&ship.particle, tuning->mass);
-    particle_add_force(&ship.particle, vector3_multiplied(ship_forward(), input.thrust * thrust));
-    real kept = 1 - tuning->drag * time_step;
+    particle_add_force(&ship.particle, vector3_multiplied(ship_forward(), ship.thrust.z));
+    Vector3 right = quaternion_rotated_vector(ship.rotation, vector3_create(1, 0, 0));
+    particle_add_force(&ship.particle, vector3_multiplied(right, ship.thrust.x));
+    particle_add_force(&ship.particle, vector3_multiplied(ship_up(), ship.thrust.y));
+    real kept = 1 - drag * time_step;
     ship.particle.damping = kept > 0 ? kept : 0;
     particle_integrate(&ship.particle, time_step);
 }
 
-// after ship_step: the camera closes part of the gap to where it wants to be
+// after ship_step: the camera's rotation closes part of the gap to the ship's
 FORCE_INLINE void ship_camera_step(real time_step) {
-    ship_camera.previous_eye = ship_camera.eye;
-    ship_camera.previous_up = ship_camera.up;
+    ship_camera.previous_rotation = ship_camera.rotation;
     real catch_up = ship_camera_tuning.follow * time_step;
     if (catch_up > 1) catch_up = 1;
-    vector3_add_scaled(&ship_camera.eye, vector3_subtracted(ship_camera_goal(), ship_camera.eye), catch_up);
-    vector3_add_scaled(&ship_camera.up, vector3_subtracted(ship_up(), ship_camera.up), catch_up);
+    ship_camera.rotation = quaternion_lerp(ship_camera.rotation, ship.rotation, catch_up);
 }
 
 static Vector3 ship_drawn_position(f32 alpha) { return vector3_lerp(ship.previous_position, ship.particle.position, alpha); }
@@ -278,11 +411,51 @@ FORCE_INLINE void ship_draw(f32 alpha) {
     render_draw_model(ship_model, ship_drawn_position(alpha), rotation, vector3_create(1, 1, 1), 0.85f, 0.87f, 0.92f);
 }
 
+// every nozzle, every frame: placed and turned with the ship. Its thrust share = that thruster's force now / main
+// thrust (1 = main at full, more with boost, less for weaker thrusters or part input). From it (user):
+//   rate = the look's rate * share, spark speed = ship_base_speed + (the look's speed - ship_base_speed) * share,
+//   cone = the look's cone / (1 + ship_cone_squeeze * (share - 1)): more thrust, a little narrower.
+// A nozzle that is off still calls render_emit (rate 0), so it remembers where it was when it starts again
+static void ship_draw_exhaust(f32 alpha) {
+    Vector3 force = ship.thrust; // N now, eased in ship_step
+    real nozzle_force[SHIP_NOZZLE_COUNT] = {
+        [SHIP_NOZZLE_MAIN] = force.z > 0 ? force.z : 0,
+        [SHIP_NOZZLE_REVERSE] = force.z < 0 ? -force.z : 0,
+        [SHIP_NOZZLE_RIGHT] = force.x > 0 ? force.x : 0,
+        [SHIP_NOZZLE_LEFT] = force.x < 0 ? -force.x : 0,
+        [SHIP_NOZZLE_UP] = force.y > 0 ? force.y : 0,
+        [SHIP_NOZZLE_DOWN] = force.y < 0 ? -force.y : 0,
+    };
+    real per_newton = ship_tuning.thrust > 0 ? 1 / ship_tuning.thrust : 0;
+    Quaternion rotation = quaternion_lerp(ship.previous_rotation, ship.rotation, alpha);
+    Vector3 position = ship_drawn_position(alpha);
+    for (i32 i = 0; i < SHIP_NOZZLE_COUNT; i++) {
+        RenderEmitter *emitter = &ship_nozzle_emitters[i];
+        RenderEmitterMemory memory = emitter->memory;
+        *emitter = ship_exhaust; // the look from the panel
+        emitter->memory = memory;
+        // world sparks (user): once out they fly free, with their shoot speed + the ship's velocity at that moment
+        real share = nozzle_force[i] * per_newton;
+        real squeeze = 1 + ship_cone_squeeze * (share - 1);
+        emitter->rate = ship_exhaust.rate * share;
+        emitter->speed = ship_base_speed + (ship_exhaust.speed - ship_base_speed) * share;
+        emitter->cone = ship_exhaust.cone / (squeeze > 0.1f ? squeeze : 0.1f);
+        emitter->position = vector3_added(position, quaternion_rotated_vector(rotation, ship_nozzles[i].position));
+        emitter->direction = quaternion_rotated_vector(rotation, ship_nozzles[i].direction);
+        emitter->velocity = ship.particle.velocity;
+        render_emit(emitter);
+    }
+}
+
 // the chase view for this frame, blended between steps like the ship
+// eye behind and above the ship in the camera's (trailing) axes, looking look_ahead in front of the ship's nose
 static void ship_camera_view(f32 alpha, DemoView *view) {
     Quaternion rotation = quaternion_lerp(ship.previous_rotation, ship.rotation, alpha);
-    Vector3 ahead = quaternion_rotated_vector(rotation, vector3_create(0, 0, -ship_camera_tuning.look_ahead));
-    view->eye = vector3_lerp(ship_camera.previous_eye, ship_camera.eye, alpha);
-    view->target = vector3_added(ship_drawn_position(alpha), ahead);
-    view->up = vector3_lerp(ship_camera.previous_up, ship_camera.up, alpha);
+    Quaternion camera = quaternion_lerp(ship_camera.previous_rotation, ship_camera.rotation, alpha);
+    Vector3 position = ship_drawn_position(alpha);
+    Vector3 up = quaternion_rotated_vector(camera, vector3_create(0, 1, 0));
+    Vector3 offset = vector3_create(0, ship_camera_tuning.height, ship_camera_tuning.distance);
+    view->eye = vector3_added(position, quaternion_rotated_vector(camera, offset));
+    view->target = vector3_added(position, quaternion_rotated_vector(rotation, vector3_create(0, 0, -ship_camera_tuning.look_ahead)));
+    view->up = up;
 }

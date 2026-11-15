@@ -116,7 +116,7 @@ FORCE_INLINE void game_draw(f32 alpha, f32 seconds) {
         game_camera.pitch = f32_atan2(forward.y, real_sqrt(forward.x * forward.x + forward.z * forward.z));
     }
 
-    render_begin(0.02f, 0.02f, 0.04f);
+    render_begin(seconds, 0.02f, 0.02f, 0.04f);
     render_set_camera(matrix4_multiplied(projection, view), eye);
 
     f32 top = (f32)plat_ui_title_bottom() + 8;

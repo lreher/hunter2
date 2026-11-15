@@ -30,6 +30,11 @@ GpuHandle plat_gpu_create_pipeline(const GpuPipelineDesc *desc) {
     return js_gpu_create_pipeline(desc, sizeof(*desc));
 }
 
+GpuHandle plat_gpu_create_compute_pipeline(GpuHandle shader) {
+    plat_gpu_stats.calls++;
+    return js_gpu_create_compute_pipeline(shader);
+}
+
 GpuHandle plat_gpu_create_bind_group(const GpuBindGroupDesc *desc) {
     plat_gpu_stats.calls++;
     return js_gpu_create_bind_group(desc, sizeof(*desc));
@@ -56,6 +61,11 @@ void plat_gpu_begin_frame(void) {
     plat_gpu_stats = (PlatGpuStats){0};
     plat_gpu_stats.calls++;
     js_gpu_begin_frame();
+}
+
+void plat_gpu_begin_compute_pass(void) {
+    plat_gpu_stats.calls++;
+    js_gpu_begin_compute_pass();
 }
 
 void plat_gpu_begin_depth_pass(GpuHandle depth_texture) {
@@ -87,6 +97,12 @@ void plat_gpu_draw(i32 vertex_count, i32 instance_count) {
     plat_gpu_stats.calls++;
     plat_gpu_stats.draws++;
     js_gpu_draw(vertex_count, instance_count);
+}
+
+void plat_gpu_dispatch(i32 groups_x, i32 groups_y, i32 groups_z) {
+    plat_gpu_stats.calls++;
+    plat_gpu_stats.dispatches++;
+    js_gpu_dispatch(groups_x, groups_y, groups_z);
 }
 
 void plat_gpu_end_frame(void) {

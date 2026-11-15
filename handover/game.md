@@ -2,15 +2,19 @@ Read brain.md first.
 
 Project: hunter2 (this repo). A browser game in C, compiled to wasm, rendered with WebGPU through our own thin JS bridge. Engine written from scratch (src/phys/), built so far by working through Millington's "Game Physics Engine Development". The book is paused for now.
 
-New stage: we are making a game out of the Gravity Cloud demo (src/demo/cloud.c). The game is 3D. I own the design: do not guess or pitch game ideas, and do not ask leading questions about what the game should be. I will tell you what to build, step by step.
+Stage: we are making a 3D game, growing out of the Gravity Cloud demo (src/demo/cloud.c). I own the design: do not guess or pitch game ideas, and do not ask leading questions about what the game should be. I tell you what to build, step by step.
+
+Where we are: the hunter2 demo (src/demo/hunter2.c, loads by default) has a flyable ship (src/demo/ship.c) with thrusters that ramp up and down (engine cutoff), Space boost, right mouse button drift, a chase camera, and thruster exhaust: our own GPU particle system (src/render/particles.c, compute shaders in src/render/shaders.c, one emitter per nozzle, sparks fly free with the ship's velocity at emission). The panel groups fold and remember it, save/load works, and the code defaults are my saved settings. focus/game.md has the full state, decisions, controls and code maps of ship.c and particles.c. Commit only when I ask.
+
+Next: more quality of life changes, I will say which. Still open from last session (focus/game.md, Next): the camera pulling back from the ship with speed up to a max distance, with boost raising the max (asked, no code yet), then particle looks. Important: before removing any panel control, put my saved value into the code default first (removing one without that broke the flight feel last session).
 
 Setup: run ./setup.sh first (checks tools, only does what is missing; ask before installing anything).
 
 Then read:
 - focus/game.md: this task.
 - focus/architecture.md, the Decisions section: code rules (layers, naming, unity build). Naming: no shorthand names.
-- src/demo/cloud.c, then src/phys/phys.h, src/phys/force.c, src/phys/particle.c as needed.
+- src/demo/ship.c and src/demo/hunter2.c, then src/render/particles.c, src/render/render.h and web/ui.js as needed.
 
-Checks: ./build.sh builds, ./test.sh runs unit tests headless (tests/test.c). tests/headless/fake.mjs runs the real game with a fake WebGPU (SCENE=<id> picks a demo). I check every change in Chrome (npm start: http://localhost:8000). Stop any server you start when done. Deploys only when I ask (handover/deploy.md).
+Checks: ./build.sh builds, ./test.sh runs unit tests headless (tests/test.c). tests/headless/fake.mjs runs the real game with a fake WebGPU (SCENE=<id> picks a demo; hunter2 is the default; hooks.write sees buffer writes, dispatches lists compute dispatches). WGSL cannot be checked headless, Chrome is the real test. I check every change in Chrome: for now, after every change, build and restart the server yourself (npm start, http://localhost:8000) so I only reload. Stop it when the session ends. Deploys only when I ask (handover/deploy.md).
 
 Keep focus/game.md up to date yourself. Then tell me you are ready and wait for my first instruction.

@@ -21,8 +21,9 @@ const DEPTH_FORMAT = "depth24plus";     // the screen's depth buffer
 const DEPTH_TEXTURE_FORMAT = "depth32float"; // GPU_FORMAT_DEPTH textures, for depth passes
 const SAMPLES = 4; // MSAA: smooth edges on spheres and lines. every pipeline and the frame targets use it
 const DEPTH_MODES = [
-    { depthWriteEnabled: false, depthCompare: "always" },
-    { depthWriteEnabled: true, depthCompare: "less" },
+    { depthWriteEnabled: false, depthCompare: "always" }, // OFF
+    { depthWriteEnabled: true, depthCompare: "less" },    // ON
+    { depthWriteEnabled: false, depthCompare: "less" },   // TEST
 ];
 const SAMPLERS = [
     { magFilter: "nearest", minFilter: "nearest" },
@@ -82,10 +83,12 @@ export async function createGpu(ctx) {
         console.log(`[js] gpu create ${kind} #${handle}`);
         return handle;
     }
+    // kind: one kind, or a list of the kinds that are fine here
     function get(handle, kind) {
         const entry = objects[handle];
         if (!entry) fail(`gpu: bad handle ${handle} (wanted ${kind})`);
-        if (entry.kind !== kind) fail(`gpu: handle ${handle} is a ${entry.kind}, wanted ${kind}`);
+        const fine = Array.isArray(kind) ? kind.includes(entry.kind) : entry.kind === kind;
+        if (!fine) fail(`gpu: handle ${handle} is a ${entry.kind}, wanted ${kind}`);
         return entry.obj;
     }
 
@@ -122,18 +125,22 @@ export async function createGpu(ctx) {
         device.queue.copyExternalImageToTexture({ source: square }, { texture }, [texture.width, texture.height]);
     };
 
-    // frame state: encoder between begin_frame and end_frame, pass between begin_*_pass and the next pass or end_frame
+    // frame state: encoder between begin_frame and end_frame, pass between begin_*_pass and the next pass or end_frame.
+    // passKind: "render" or "compute", so a draw in a compute pass (or the other way round) fails here, by name
     let encoder = null;
     let pass = null;
+    let passKind = null;
     function needFrame(what) {
         if (!encoder) fail(`gpu: ${what} called outside begin_frame/end_frame`);
     }
-    function needPass(what) {
+    function needPass(what, kind) {
         if (!pass) fail(`gpu: ${what} called outside a pass`);
+        if (kind && passKind !== kind) fail(`gpu: ${what} needs a ${kind} pass, this is a ${passKind} pass`);
     }
     function endPass() {
         if (pass) pass.end();
         pass = null;
+        passKind = null;
     }
 
     return {
@@ -209,6 +216,11 @@ export async function createGpu(ctx) {
             return add("pipeline", device.createRenderPipeline(desc));
         },
 
+        js_gpu_create_compute_pipeline(shader) {
+            const desc = { layout: "auto", compute: { module: get(shader, "shader"), entryPoint: "cs" } };
+            return add("compute pipeline", device.createComputePipeline(desc));
+        },
+
         js_gpu_create_bind_group(ptr, size) {
             const d = readDesc(ptr, size, BIND_GROUP_DESC_INTS, "GpuBindGroupDesc");
             const [pipeline, group, entryCount] = d;
@@ -225,7 +237,7 @@ export async function createGpu(ctx) {
                 else fail(`gpu: unknown bind type ${type}`);
             }
 
-            const layout = get(pipeline, "pipeline").getBindGroupLayout(group);
+            const layout = get(pipeline, ["pipeline", "compute pipeline"]).getBindGroupLayout(group);
             return add("bind group", device.createBindGroup({ layout, entries }));
         },
 
@@ -251,9 +263,17 @@ export async function createGpu(ctx) {
             encoder = device.createCommandEncoder();
         },
 
+        js_gpu_begin_compute_pass() {
+            needFrame("begin_compute_pass");
+            endPass();
+            pass = encoder.beginComputePass();
+            passKind = "compute";
+        },
+
         js_gpu_begin_depth_pass(handle) {
             needFrame("begin_depth_pass");
             endPass();
+            passKind = "render";
             pass = encoder.beginRenderPass({
                 colorAttachments: [],
                 depthStencilAttachment: {
@@ -269,6 +289,7 @@ export async function createGpu(ctx) {
             needFrame("begin_screen_pass");
             endPass();
             updateTargets();
+            passKind = "render";
             pass = encoder.beginRenderPass({
                 colorAttachments: [{
                     view: colorTexture.createView(),
@@ -288,7 +309,7 @@ export async function createGpu(ctx) {
 
         js_gpu_set_pipeline(handle) {
             needPass("set_pipeline");
-            pass.setPipeline(get(handle, "pipeline"));
+            pass.setPipeline(get(handle, passKind === "compute" ? "compute pipeline" : "pipeline"));
         },
 
         js_gpu_set_bind_group(group, handle) {
@@ -297,13 +318,18 @@ export async function createGpu(ctx) {
         },
 
         js_gpu_set_vertex_buffer(slot, handle, offset) {
-            needPass("set_vertex_buffer");
+            needPass("set_vertex_buffer", "render");
             pass.setVertexBuffer(slot, get(handle, "buffer"), offset);
         },
 
         js_gpu_draw(vertexCount, instanceCount) {
-            needPass("draw");
+            needPass("draw", "render");
             pass.draw(vertexCount, instanceCount);
+        },
+
+        js_gpu_dispatch(x, y, z) {
+            needPass("dispatch", "compute");
+            pass.dispatchWorkgroups(x, y, z);
         },
 
         js_gpu_end_frame() {

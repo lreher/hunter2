@@ -39,17 +39,20 @@ IMPORT("js_gpu_create_buffer") GpuHandle js_gpu_create_buffer(i32 size, i32 usag
 IMPORT("js_gpu_create_texture") GpuHandle js_gpu_create_texture(i32 w, i32 h, i32 format, i32 usage);
 IMPORT("js_gpu_create_sampler") GpuHandle js_gpu_create_sampler(i32 filter);
 IMPORT("js_gpu_create_pipeline") GpuHandle js_gpu_create_pipeline(const void *desc, i32 size);
+IMPORT("js_gpu_create_compute_pipeline") GpuHandle js_gpu_create_compute_pipeline(GpuHandle shader);
 IMPORT("js_gpu_create_bind_group") GpuHandle js_gpu_create_bind_group(const void *desc, i32 size);
 IMPORT("js_gpu_destroy") void js_gpu_destroy(GpuHandle h);
 IMPORT("js_gpu_write_buffer") void js_gpu_write_buffer(GpuHandle buffer, i32 offset, const void *data, i32 size);
 IMPORT("js_gpu_write_texture") void js_gpu_write_texture(GpuHandle texture, const void *data, i32 w, i32 h, i32 bytes_per_row);
 IMPORT("js_gpu_begin_frame") void js_gpu_begin_frame(void);
+IMPORT("js_gpu_begin_compute_pass") void js_gpu_begin_compute_pass(void);
 IMPORT("js_gpu_begin_depth_pass") void js_gpu_begin_depth_pass(GpuHandle depth_texture);
 IMPORT("js_gpu_begin_screen_pass") void js_gpu_begin_screen_pass(f32 r, f32 g, f32 b);
 IMPORT("js_gpu_set_pipeline") void js_gpu_set_pipeline(GpuHandle pipeline);
 IMPORT("js_gpu_set_bind_group") void js_gpu_set_bind_group(i32 group, GpuHandle bind_group);
 IMPORT("js_gpu_set_vertex_buffer") void js_gpu_set_vertex_buffer(i32 slot, GpuHandle buffer, i32 offset);
 IMPORT("js_gpu_draw") void js_gpu_draw(i32 vertex_count, i32 instance_count);
+IMPORT("js_gpu_dispatch") void js_gpu_dispatch(i32 groups_x, i32 groups_y, i32 groups_z);
 IMPORT("js_gpu_end_frame") void js_gpu_end_frame(void);
 
 // platform.c
