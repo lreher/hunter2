@@ -53,16 +53,33 @@ f32 f32_tan(f32 x);
 // 4x4 matrix, column major (m[column * 4 + row]), the layout WGSL's mat4x4f expects
 typedef struct {
     f32 m[16];
-} M4;
+} Matrix4;
 
-M4 m4_identity(void);
-M4 m4_multiplied(M4 a, M4 b); // a * b: applies b first, then a
+Matrix4 matrix4_identity(void);
+Matrix4 matrix4_multiplied(Matrix4 a, Matrix4 b); // a * b: applies b first, then a
 // right handed, camera looks down -z. depth goes 0 at near to 1 at far (WebGPU)
-M4 m4_perspective(f32 fov_y, f32 aspect, f32 near, f32 far);
-M4 m4_look_at(Vector3 eye, Vector3 target, Vector3 up);
-// same axes and depth range as m4_perspective, without the perspective (parallel rays, for the sun)
-M4 m4_orthographic(f32 left, f32 right, f32 bottom, f32 top, f32 near, f32 far);
-Vector3 m4_transform_point(M4 m, Vector3 p); // m * (p, 1), divided by w
+Matrix4 matrix4_perspective(f32 fov_y, f32 aspect, f32 near, f32 far);
+Matrix4 matrix4_look_at(Vector3 eye, Vector3 target, Vector3 up);
+// same axes and depth range as matrix4_perspective, without the perspective (parallel rays, for the sun)
+Matrix4 matrix4_orthographic(f32 left, f32 right, f32 bottom, f32 top, f32 near, f32 far);
+Vector3 matrix4_transform_point(Matrix4 m, Vector3 p); // m * (p, 1), divided by w
+
+// math.c. a rotation in 3D (book 9.2.3). Unit length when it is a rotation: turning by angle around unit axis
+// is w = cos(angle / 2), (x, y, z) = axis * sin(angle / 2). Same verb / verbed style as vector3
+typedef struct {
+    real w, x, y, z;
+} Quaternion;
+
+Quaternion quaternion_identity(void);                             // no rotation
+Quaternion quaternion_from_axis_angle(Vector3 axis, real angle); // axis must be unit length, angle in radians
+Quaternion quaternion_multiplied(Quaternion a, Quaternion b);    // a * b: turns by b first, then by a
+void quaternion_normalize(Quaternion *q);                        // back to unit length, float error drifts it
+// turns q by angular_velocity (radians per second around its direction, world axes) for time_step, book 9.4.3.
+// normalizes after, so it can run every step
+void quaternion_add_rotation(Quaternion *q, Vector3 angular_velocity, real time_step);
+Vector3 quaternion_rotated_vector(Quaternion q, Vector3 v); // v turned by q
+Quaternion quaternion_lerp(Quaternion a, Quaternion b, real t); // blend for drawing between steps, takes the short way round
+Matrix4 matrix4_from_rotation_position(Quaternion rotation, Vector3 position); // model matrix: turn, then move
 
 // rand.c. xorshift32, same seed = same numbers
 void rand_seed(u32 seed);

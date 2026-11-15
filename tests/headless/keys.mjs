@@ -1,6 +1,7 @@
 // Sends fake key and mouse events: respawns on space, camera moves and turns.
-import { start, frame, windowHandlers as win, canvasHandlers as cvs } from "./fake.mjs";
-import * as gpu from "./fake.mjs";
+process.env.SCENE ??= "balls"; // written for the balls demo, hunter2 is the default now
+const gpu = await import("./fake.mjs");
+const { start, frame, windowHandlers: win, canvasHandlers: cvs } = gpu;
 
 const logs = [];
 const origLog = console.log;

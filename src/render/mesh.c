@@ -2,7 +2,7 @@
 #include "platform/platform.h"
 #include "render/render.h"
 
-// 3D drawing: instanced meshes (sphere, box) and lines, in world meters, y up.
+// 3D drawing: instanced meshes (sphere, box, models made in code) and lines, in world meters, y up.
 // Every draw call adds to a batch. render_end uploads each batch once, then draws it in two passes:
 // the shadow pass draws the scene from the sun into a depth texture (the shadow map),
 // the screen pass draws it from the camera and reads the shadow map to see where the sun reaches.
@@ -66,6 +66,20 @@ static f32 mesh_lod_scale;           // on screen radius in pixels = radius * me
 static MeshInstance mesh_box_instances[MESH_MAX_INSTANCES];
 static i32 mesh_box_count;
 static GpuHandle mesh_box_buffer;
+
+// Models: shapes made in code from a list of triangles (render_create_model), drawn turned by a quaternion.
+// One instance range per model in one buffer: model k uses slots k * MESH_MAX_MODEL_INSTANCES and up
+#define MESH_MAX_MODELS 16
+#define MESH_MAX_MODEL_VERTICES 8192 // all models together
+#define MESH_MAX_MODEL_INSTANCES 256 // per model
+static MeshVertex mesh_model_vertices[MESH_MAX_MODEL_VERTICES];
+static i32 mesh_model_vertices_used;
+static MeshShape mesh_models[MESH_MAX_MODELS];
+static i32 mesh_model_count;
+static MeshInstance mesh_model_instances[MESH_MAX_MODELS][MESH_MAX_MODEL_INSTANCES];
+static i32 mesh_model_instance_counts[MESH_MAX_MODELS];
+static i32 mesh_model_instance_total; // all models, this frame
+static GpuHandle mesh_model_buffer;
 
 static LineVertex mesh_lines[MESH_MAX_LINES * 2];
 static i32 mesh_line_count;
@@ -228,6 +242,7 @@ static void render_mesh_init(void) {
     i32 instances_size = MESH_MAX_INSTANCES * (i32)sizeof(MeshInstance);
     mesh_sphere_buffer = plat_gpu_create_buffer(instances_size, GPU_BUFFER_VERTEX | GPU_BUFFER_STORAGE | GPU_BUFFER_COPY_DST);
     mesh_box_buffer = plat_gpu_create_buffer(instances_size, GPU_BUFFER_VERTEX | GPU_BUFFER_COPY_DST);
+    mesh_model_buffer = plat_gpu_create_buffer(sizeof(mesh_model_instances), GPU_BUFFER_VERTEX | GPU_BUFFER_COPY_DST);
     mesh_line_buffer = plat_gpu_create_buffer(sizeof(mesh_lines), GPU_BUFFER_VERTEX | GPU_BUFFER_COPY_DST);
     mesh_grid_buffer = plat_gpu_create_buffer(sizeof(mesh_grid), GPU_BUFFER_STORAGE | GPU_BUFFER_COPY_DST);
     mesh_scene_buffer = plat_gpu_create_buffer(sizeof(MeshScene), GPU_BUFFER_UNIFORM | GPU_BUFFER_COPY_DST);
@@ -294,10 +309,12 @@ static void render_mesh_init(void) {
 static void render_mesh_begin(void) {
     mesh_sphere_count = 0;
     mesh_box_count = 0;
+    for (i32 model = 0; model < mesh_model_count; model++) mesh_model_instance_counts[model] = 0;
+    mesh_model_instance_total = 0;
     mesh_line_count = 0;
 }
 
-void render_set_camera(M4 view_projection, Vector3 eye) {
+void render_set_camera(Matrix4 view_projection, Vector3 eye) {
     for (i32 i = 0; i < 16; i++) mesh_scene.view_proj[i] = view_projection.m[i];
     Vector3 light = vector3_create(0.4f, 1.0f, 0.3f); // up, a bit right and front
     vector3_normalize(&light);
@@ -361,6 +378,44 @@ void render_draw_sphere_photo(Vector3 center, f32 radius, f32 r, f32 g, f32 b) {
 void render_draw_box(Vector3 center, Vector3 half_size, f32 r, f32 g, f32 b) {
     if (mesh_box_count >= MESH_MAX_INSTANCES) return;
     mesh_box_instances[mesh_box_count++] = mesh_instance(center, half_size, r, g, b);
+}
+
+RenderModel render_create_model(const Vector3 *corners, i32 triangle_count) {
+    i32 vertex_count = triangle_count * 3;
+    if (mesh_model_count >= MESH_MAX_MODELS || mesh_model_vertices_used + vertex_count > MESH_MAX_MODEL_VERTICES) {
+        plat_log("render_create_model: out of room, raise MESH_MAX_MODELS or MESH_MAX_MODEL_VERTICES");
+        __builtin_trap();
+    }
+    Vector3 center = vector3_zero();
+    for (i32 i = 0; i < vertex_count; i++) vector3_add(&center, corners[i]);
+    vector3_multiply(&center, 1.0f / (f32)vertex_count);
+
+    MeshShape *shape = &mesh_models[mesh_model_count];
+    shape->vertices = mesh_model_vertices + mesh_model_vertices_used;
+    shape->vertex_count = 0;
+    for (i32 i = 0; i < triangle_count; i++) {
+        Vector3 a = corners[i * 3], b = corners[i * 3 + 1], c = corners[i * 3 + 2];
+        Vector3 normal = vector3_vector_product(vector3_subtracted(b, a), vector3_subtracted(c, a));
+        Vector3 outward = vector3_subtracted(vector3_added(vector3_added(a, b), c), vector3_multiplied(center, 3));
+        if (vector3_scalar_product(normal, outward) < 0) vector3_invert(&normal); // mesh_push_triangle flips the corners to match
+        vector3_normalize(&normal);
+        mesh_push_triangle(shape, a, b, c, normal, 0);
+    }
+    mesh_model_vertices_used += shape->vertex_count;
+    mesh_upload_shape(shape);
+    return mesh_model_count++;
+}
+
+void render_draw_model(RenderModel model, Vector3 position, Quaternion rotation, Vector3 scale, f32 r, f32 g, f32 b) {
+    if (model < 0 || model >= mesh_model_count) return;
+    if (mesh_model_instance_counts[model] >= MESH_MAX_MODEL_INSTANCES) return;
+    MeshInstance instance = mesh_instance(position, scale, r, g, b);
+    instance.qx = rotation.x;
+    instance.qy = rotation.y;
+    instance.qz = rotation.z;
+    instance.qw = rotation.w;
+    mesh_model_instances[model][mesh_model_instance_counts[model]++] = instance;
+    mesh_model_instance_total++;
 }
 
 void render_draw_line(Vector3 from, Vector3 to, f32 r, f32 g, f32 b) {
@@ -472,12 +527,12 @@ static void mesh_fit_shadow(void) {
     Vector3 light = vector3_create(mesh_scene.light[0], mesh_scene.light[1], mesh_scene.light[2]);
     Vector3 center = vector3_multiplied(vector3_added(min, max), 0.5f);
     Vector3 up = (light.y > 0.99f || light.y < -0.99f) ? vector3_create(0, 0, 1) : vector3_create(0, 1, 0);
-    M4 view = m4_look_at(vector3_added(center, light), center, up); // only the direction matters, any distance works
+    Matrix4 view = matrix4_look_at(vector3_added(center, light), center, up); // only the direction matters, any distance works
 
     Vector3 lo = vector3_create(1e30f, 1e30f, 1e30f), hi = vector3_create(-1e30f, -1e30f, -1e30f);
     for (i32 k = 0; k < 8; k++) {
         Vector3 corner = vector3_create(k & 1 ? max.x : min.x, k & 2 ? max.y : min.y, k & 4 ? max.z : min.z);
-        Vector3 p = m4_transform_point(view, corner);
+        Vector3 p = matrix4_transform_point(view, corner);
         if (p.x < lo.x) lo.x = p.x;
         if (p.y < lo.y) lo.y = p.y;
         if (p.z < lo.z) lo.z = p.z;
@@ -486,7 +541,7 @@ static void mesh_fit_shadow(void) {
         if (p.z > hi.z) hi.z = p.z;
     }
     // the view looks down -z, so the corner nearest the sun has the largest z
-    M4 light_view_proj = m4_multiplied(m4_orthographic(lo.x, hi.x, lo.y, hi.y, -hi.z, -lo.z), view);
+    Matrix4 light_view_proj = matrix4_multiplied(matrix4_orthographic(lo.x, hi.x, lo.y, hi.y, -hi.z, -lo.z), view);
     for (i32 i = 0; i < 16; i++) mesh_scene.light_view_proj[i] = light_view_proj.m[i];
 
     f32 width = hi.x - lo.x, height = hi.y - lo.y;
@@ -510,6 +565,12 @@ static void mesh_draw_batches(void) {
         plat_gpu_set_vertex_buffer(1, mesh_box_buffer, 0);
         plat_gpu_draw(mesh_box.vertex_count, mesh_box_count);
     }
+    for (i32 model = 0; model < mesh_model_count; model++) {
+        if (mesh_model_instance_counts[model] == 0) continue;
+        plat_gpu_set_vertex_buffer(0, mesh_models[model].vertex_buffer, 0);
+        plat_gpu_set_vertex_buffer(1, mesh_model_buffer, model * MESH_MAX_MODEL_INSTANCES * (i32)sizeof(MeshInstance));
+        plat_gpu_draw(mesh_models[model].vertex_count, mesh_model_instance_counts[model]);
+    }
 }
 
 // uploads the frame (scene, batches, contact grid), then draws the shadow map
@@ -524,13 +585,19 @@ static void render_mesh_shadow_pass(void) {
     if (mesh_box_count > 0) {
         plat_gpu_write_buffer(mesh_box_buffer, 0, mesh_box_instances, mesh_box_count * (i32)sizeof(MeshInstance));
     }
+    for (i32 model = 0; model < mesh_model_count; model++) {
+        i32 count = mesh_model_instance_counts[model];
+        if (count == 0) continue;
+        plat_gpu_write_buffer(mesh_model_buffer, model * MESH_MAX_MODEL_INSTANCES * (i32)sizeof(MeshInstance),
+                              mesh_model_instances[model], count * (i32)sizeof(MeshInstance));
+    }
     if (mesh_grid_used > 0) plat_gpu_write_buffer(mesh_grid_buffer, 0, mesh_grid, mesh_grid_used * 4);
     if (mesh_line_count > 0) {
         plat_gpu_write_buffer(mesh_line_buffer, 0, mesh_lines, mesh_line_count * 2 * (i32)sizeof(LineVertex));
     }
 
     plat_gpu_begin_depth_pass(mesh_shadow_map); // even with nothing to draw, so the map is cleared
-    if (mesh_sphere_count + mesh_box_count > 0) {
+    if (mesh_sphere_count + mesh_box_count + mesh_model_instance_total > 0) {
         plat_gpu_set_pipeline(mesh_shadow_pipeline);
         plat_gpu_set_bind_group(0, mesh_shadow_bind_group);
         mesh_draw_batches();
@@ -539,7 +606,7 @@ static void render_mesh_shadow_pass(void) {
 
 // screen pass: the meshes lit and shadowed, then the lines
 static void render_mesh_draw(void) {
-    if (mesh_sphere_count + mesh_box_count > 0) {
+    if (mesh_sphere_count + mesh_box_count + mesh_model_instance_total > 0) {
         plat_gpu_set_pipeline(mesh_pipeline);
         plat_gpu_set_bind_group(0, mesh_bind_group);
         mesh_draw_batches();

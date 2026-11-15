@@ -1,5 +1,6 @@
 // Runs the real game headless and checks the balls: inside the box, no NaN, overlap. ASCII front and top views.
-import { start, frame, draws } from "./fake.mjs";
+process.env.SCENE ??= "balls"; // written for the balls demo, hunter2 is the default now
+const { start, frame, draws } = await import("./fake.mjs");
 const W = 16, H = 9, D = 9; // world box, matches game.c: x 0..W, y 0..H, z -D/2..D/2
 
 await start();

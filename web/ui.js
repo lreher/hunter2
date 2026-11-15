@@ -36,7 +36,8 @@ export function createUi(ctx) {
                 }
                 const index = tabs.length;
                 const tab = document.createElement("div");
-                tab.textContent = `ch ${text(chapterPtr, chapterLen)}  ${text(namePtr, nameLen)}`;
+                const chapter = text(chapterPtr, chapterLen); // empty for the game itself
+                tab.textContent = chapter ? `ch ${chapter}  ${text(namePtr, nameLen)}` : text(namePtr, nameLen);
                 tab.style.cssText = "padding:4px 10px;border-radius:4px;cursor:pointer;white-space:pre;user-select:none";
                 tab.addEventListener("click", () => {
                     if (pickedPtr) new Int32Array(ctx.memory.buffer, pickedPtr, 1)[0] = index;

@@ -668,39 +668,112 @@ static void test_trig(void) {
     CHECK(worst < 0.00001f);                 // sin^2 + cos^2 = 1 everywhere
 }
 
-static void test_m4(void) {
-    M4 a = m4_identity();
+static void test_quaternion(void) {
+    Vector3 x_axis = vector3_create(1, 0, 0), y_axis = vector3_create(0, 1, 0);
+    Vector3 same = quaternion_rotated_vector(quaternion_identity(), vector3_create(1, 2, 3));
+    NEAR(same.x, 1);
+    NEAR(same.y, 2);
+    NEAR(same.z, 3);
+
+    // a quarter turn around y takes x to -z (right handed, counterclockwise seen from above)
+    Quaternion quarter_y = quaternion_from_axis_angle(y_axis, F32_PI / 2);
+    Vector3 turned = quaternion_rotated_vector(quarter_y, x_axis);
+    NEAR(turned.x, 0);
+    NEAR(turned.y, 0);
+    NEAR(turned.z, -1);
+
+    // a * b turns by b first: quarter around x, then quarter around y. y goes to z, then z goes to x
+    Quaternion quarter_x = quaternion_from_axis_angle(x_axis, F32_PI / 2);
+    Vector3 both = quaternion_rotated_vector(quaternion_multiplied(quarter_y, quarter_x), y_axis);
+    Vector3 one_by_one = quaternion_rotated_vector(quarter_y, quaternion_rotated_vector(quarter_x, y_axis));
+    NEAR(both.x, 1);
+    NEAR(both.y, 0);
+    NEAR(both.z, 0);
+    NEAR(one_by_one.x, both.x);
+    // the same with turns around tilted axes, where every term of the product counts
+    Vector3 tilted_a = vector3_create(1, 2, 3), tilted_b = vector3_create(-2, 1, 0.5f), point = vector3_create(0.3f, -1, 2);
+    vector3_normalize(&tilted_a);
+    vector3_normalize(&tilted_b);
+    Quaternion turn_a = quaternion_from_axis_angle(tilted_a, 0.7f), turn_b = quaternion_from_axis_angle(tilted_b, 1.9f);
+    both = quaternion_rotated_vector(quaternion_multiplied(turn_a, turn_b), point);
+    one_by_one = quaternion_rotated_vector(turn_a, quaternion_rotated_vector(turn_b, point));
+    NEAR(both.x, one_by_one.x);
+    NEAR(both.y, one_by_one.y);
+    NEAR(both.z, one_by_one.z);
+    NEAR(vector3_magnitude(both), vector3_magnitude(point)); // turning keeps length
+
+    // turning at a quarter turn per second for one second, in 60 steps, lands near the quarter turn
+    Quaternion spun = quaternion_identity();
+    for (i32 step = 0; step < 60; step++) quaternion_add_rotation(&spun, vector3_create(0, F32_PI / 2, 0), 1.0f / 60);
+    turned = quaternion_rotated_vector(spun, x_axis);
+    CHECK(near(turned.x, 0, 0.01f));
+    CHECK(near(turned.z, -1, 0.01f));
+    // angular velocity is in world axes: already turned a quarter around y, then a quarter around world x
+    spun = quarter_y;
+    for (i32 step = 0; step < 60; step++) quaternion_add_rotation(&spun, vector3_create(F32_PI / 2, 0, 0), 1.0f / 60);
+    Vector3 expected = quaternion_rotated_vector(quaternion_multiplied(quarter_x, quarter_y), y_axis);
+    turned = quaternion_rotated_vector(spun, y_axis);
+    CHECK(near(turned.x, expected.x, 0.01f));
+    CHECK(near(turned.y, expected.y, 0.01f));
+    CHECK(near(turned.z, expected.z, 0.01f));
+    // still unit length after many steps
+    for (i32 step = 0; step < 10000; step++) quaternion_add_rotation(&spun, vector3_create(1, 2, 3), 1.0f / 60);
+    NEAR(spun.w * spun.w + spun.x * spun.x + spun.y * spun.y + spun.z * spun.z, 1);
+
+    // halfway from none to a quarter turn is an eighth turn, also when b is given as -b (the same rotation)
+    Quaternion eighth_y = quaternion_from_axis_angle(y_axis, F32_PI / 4);
+    Quaternion half = quaternion_lerp(quaternion_identity(), quarter_y, 0.5f);
+    Quaternion flipped = {-quarter_y.w, -quarter_y.x, -quarter_y.y, -quarter_y.z};
+    Quaternion half_flipped = quaternion_lerp(quaternion_identity(), flipped, 0.5f);
+    NEAR(half.w, eighth_y.w);
+    NEAR(half.y, eighth_y.y);
+    NEAR(half_flipped.w, eighth_y.w);
+    NEAR(half_flipped.y, eighth_y.y);
+
+    // model matrix: turn first, then move
+    Vector3 placed = matrix4_transform_point(matrix4_from_rotation_position(quarter_y, vector3_create(5, 0, 0)), x_axis);
+    NEAR(placed.x, 5);
+    NEAR(placed.y, 0);
+    NEAR(placed.z, -1);
+
+    Quaternion zero = {0, 0, 0, 0};
+    quaternion_normalize(&zero); // no NaN, falls back to no rotation
+    NEAR(zero.w, 1);
+}
+
+static void test_matrix4(void) {
+    Matrix4 a = matrix4_identity();
     a.m[12] = 5;                             // move x by 5
-    M4 b = m4_identity();
+    Matrix4 b = matrix4_identity();
     b.m[0] = 2;                              // scale x by 2
-    Vector3 p = m4_transform_point(m4_multiplied(a, b), vector3_create(1, 0, 0));
+    Vector3 p = matrix4_transform_point(matrix4_multiplied(a, b), vector3_create(1, 0, 0));
     NEAR(p.x, 7);                            // scaled first, then moved
-    p = m4_transform_point(m4_multiplied(b, a), vector3_create(1, 0, 0));
+    p = matrix4_transform_point(matrix4_multiplied(b, a), vector3_create(1, 0, 0));
     NEAR(p.x, 12);                           // moved first, then scaled
 
-    M4 view = m4_look_at(vector3_create(0, 0, 5), vector3_zero(), vector3_create(0, 1, 0));
-    p = m4_transform_point(view, vector3_zero());
+    Matrix4 view = matrix4_look_at(vector3_create(0, 0, 5), vector3_zero(), vector3_create(0, 1, 0));
+    p = matrix4_transform_point(view, vector3_zero());
     NEAR(p.z, -5);                           // the target is 5 in front, down -z
-    p = m4_transform_point(view, vector3_create(1, 2, 0));
+    p = matrix4_transform_point(view, vector3_create(1, 2, 0));
     NEAR(p.x, 1);                            // right stays right
     NEAR(p.y, 2);                            // up stays up
 
-    M4 proj = m4_perspective(F32_PI / 2, 2, 1, 100);
-    NEAR(m4_transform_point(proj, vector3_create(0, 0, -1)).z, 0);   // near plane -> depth 0
-    NEAR(m4_transform_point(proj, vector3_create(0, 0, -100)).z, 1); // far plane -> depth 1
-    NEAR(m4_transform_point(proj, vector3_create(0, 3, -3)).y, 1);   // 45 degrees up is the top edge (fov 90)
-    NEAR(m4_transform_point(proj, vector3_create(6, 0, -3)).x, 1);   // aspect 2: twice as wide
+    Matrix4 proj = matrix4_perspective(F32_PI / 2, 2, 1, 100);
+    NEAR(matrix4_transform_point(proj, vector3_create(0, 0, -1)).z, 0);   // near plane -> depth 0
+    NEAR(matrix4_transform_point(proj, vector3_create(0, 0, -100)).z, 1); // far plane -> depth 1
+    NEAR(matrix4_transform_point(proj, vector3_create(0, 3, -3)).y, 1);   // 45 degrees up is the top edge (fov 90)
+    NEAR(matrix4_transform_point(proj, vector3_create(6, 0, -3)).x, 1);   // aspect 2: twice as wide
 
-    M4 ortho = m4_orthographic(-2, 6, 1, 3, 1, 11);
-    p = m4_transform_point(ortho, vector3_create(-2, 1, -1));
+    Matrix4 ortho = matrix4_orthographic(-2, 6, 1, 3, 1, 11);
+    p = matrix4_transform_point(ortho, vector3_create(-2, 1, -1));
     NEAR(p.x, -1);                           // left, bottom, near corner
     NEAR(p.y, -1);
     NEAR(p.z, 0);
-    p = m4_transform_point(ortho, vector3_create(6, 3, -11));
+    p = matrix4_transform_point(ortho, vector3_create(6, 3, -11));
     NEAR(p.x, 1);                            // right, top, far corner
     NEAR(p.y, 1);
     NEAR(p.z, 1);
-    NEAR(m4_transform_point(ortho, vector3_create(2, 2, -50)).x, 0); // no perspective: distance does not move x
+    NEAR(matrix4_transform_point(ortho, vector3_create(2, 2, -50)).x, 0); // no perspective: distance does not move x
 }
 
 static void test_str(void) {
@@ -741,7 +814,8 @@ __attribute__((export_name("run_tests"))) i32 run_tests(void) {
     test_rand_unit();
     test_rand();
     test_trig();
-    test_m4();
+    test_matrix4();
+    test_quaternion();
     test_str();
     return failures;
 }

@@ -1,5 +1,6 @@
 // Measures how far balls move per frame (pile jitter).
-import { start, frame } from "./fake.mjs";
+process.env.SCENE ??= "balls"; // written for the balls demo, hunter2 is the default now
+const { start, frame } = await import("./fake.mjs");
 await start();
 
 let prev = null;

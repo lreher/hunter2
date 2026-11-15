@@ -23,6 +23,8 @@
 
 #include "demo/demo.h"
 #include "demo/balls.c"
+#include "demo/ship.c"
+#include "demo/hunter2.c"
 #include "demo/cloud.c"
 #include "demo/bridge.c"
 #include "demo/pool.c"

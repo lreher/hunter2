@@ -62,7 +62,7 @@ void game_init(void) {
     plat_log_i32("gpu calls at init", plat_gpu_stats.calls);
 
     for (i32 i = 0; i < DEMO_COUNT; i++) plat_ui_demo(demo_list[i].id, demo_list[i].chapter, demo_list[i].name);
-    game_demo_picked = DEMO_BALLS;
+    game_demo_picked = DEMO_HUNTER2;
     plat_ui_demo_bar(&game_demo_picked); // may pick another one from ?scene=
     game_start_demo(game_demo_picked);
 }
@@ -98,12 +98,12 @@ static void game_update_camera(f32 seconds) {
 // alpha: how far we are between the last step (0) and the next one (1)
 FORCE_INLINE void game_draw(f32 alpha, f32 seconds) {
     f32 aspect = (f32)plat_screen_width() / (f32)plat_screen_height();
-    M4 projection = m4_perspective(CAMERA_FOV, aspect, 0.05f, 200.0f);
+    Matrix4 projection = matrix4_perspective(CAMERA_FOV, aspect, 0.05f, 200.0f);
     Vector3 eye = game_camera.position;
-    M4 view = m4_look_at(eye, vector3_added(eye, game_camera_forward()), vector3_create(0, 1, 0));
+    Matrix4 view = matrix4_look_at(eye, vector3_added(eye, game_camera_forward()), vector3_create(0, 1, 0));
 
     render_begin(0.02f, 0.02f, 0.04f);
-    render_set_camera(m4_multiplied(projection, view), eye);
+    render_set_camera(matrix4_multiplied(projection, view), eye);
 
     f32 top = (f32)plat_ui_title_bottom() + 8;
     char line[64];
