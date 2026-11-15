@@ -102,7 +102,7 @@ static void game_update_camera(f32 seconds) {
 // alpha: how far we are between the last step (0) and the next one (1)
 FORCE_INLINE void game_draw(f32 alpha, f32 seconds) {
     f32 aspect = (f32)plat_screen_width() / (f32)plat_screen_height();
-    Matrix4 projection = matrix4_perspective(CAMERA_FOV, aspect, 0.05f, 400.0f);
+    Matrix4 projection = matrix4_perspective(CAMERA_FOV, aspect, demo_far > DEMO_FAR ? 0.1f : 0.05f, demo_far);
     DemoView demo_camera;
     Vector3 eye = game_camera.position;
     Matrix4 view = matrix4_look_at(eye, vector3_added(eye, game_camera_forward()), vector3_create(0, 1, 0));

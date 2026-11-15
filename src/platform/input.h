@@ -24,11 +24,13 @@ enum {
     KEY_BACKSPACE,
     KEY_CONTROL, // either control key
     KEY_MOUSE_RIGHT, // the right mouse button
+    KEY_MOUSE_LEFT,  // the left mouse button, only while the mouse is locked (the click that locks it does not count)
 };
 
 // down = held right now. pressed = went down since the last frame (key repeat does not count)
 i32 plat_key_down(i32 key);
 i32 plat_key_pressed(i32 key);
+const char *plat_key_name(i32 key); // for showing to the player: "W", "Space", "right mouse"
 
 // mouse movement in pixels since the last frame, only while the mouse is locked (click the canvas, Esc lets it go)
 i32 plat_mouse_locked(void);

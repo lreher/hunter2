@@ -105,12 +105,14 @@ static const char render_shader_mesh[] =
     "    @location(1) color: vec4f,\n"
     "    @location(2) world: vec3f,\n"
     "    @location(3) center: vec4f,\n" // w = 1: show the photo
+    "    @location(4) glow: f32,\n"       // 1 = full color, no shading
     "};\n"
     "\n"
     "@vertex fn vs(i: In) -> VOut {\n"
     "    let world = world_position(i);\n"
     "    var o: VOut;\n"
     "    o.center = i.center;\n"
+    "    o.glow = i.half_size.w;\n"
     "    o.pos = scene.view_proj * vec4f(world, 1.0);\n"
     "    o.normal = rotate(i.rotation, i.normal / i.half_size.xyz);\n" // stretched shapes bend their normals the other way
     "    o.color = i.color;\n"
@@ -183,7 +185,7 @@ static const char render_shader_mesh[] =
     "    let specular = pow(max(dot(n, h), 0.0), 32.0) * 0.12 * sun * step(0.0, dot(n, l));\n"
     "    let sky = mix(vec3f(0.06, 0.05, 0.05), vec3f(0.20, 0.23, 0.30), 0.5 + 0.5 * n.y);\n" // more from above than below
     "    let lit = albedo * (vec3f(1.0, 0.96, 0.9) * diffuse + sky * ambient) + vec3f(specular);\n"
-    "    return vec4f(pow(lit, vec3f(1.0 / 2.2)), i.color.a);\n"
+    "    return vec4f(mix(pow(lit, vec3f(1.0 / 2.2)), color, clamp(i.glow, 0.0, 1.0)), i.color.a);\n"
     "}\n";
 
 // Shadow pass: the same instances seen from the sun, depth only (no fragment shader).
@@ -196,6 +198,38 @@ static const char render_shader_shadow[] =
     "}\n";
 
 // Lines in world space, one color per vertex. Layout must match LineVertex in mesh.c.
+// Glows: a soft light around a point (a glowing bullet's halo). A square facing the camera, brightest in the middle,
+// fading to nothing at its radius. Drawn added up (additive), depth tested but not written, like the sparks.
+static const char render_shader_glow[] =
+    "struct Scene { view_proj: mat4x4f, light: vec4f, eye: vec4f };\n" // only the start of the mesh Scene
+    "@group(0) @binding(0) var<uniform> scene: Scene;\n"
+    "\n"
+    "struct VOut {\n"
+    "    @builtin(position) position: vec4f,\n"
+    "    @location(0) corner: vec2f,\n"
+    "    @location(1) color: vec4f,\n"
+    "};\n"
+    "\n"
+    "@vertex fn vs(@builtin(vertex_index) corner_index: u32, @location(0) center: vec4f, @location(1) color: vec4f) -> VOut {\n"
+    "    let corner = vec2f(f32(corner_index & 1u), f32(corner_index >> 1u)) * 2.0 - 1.0;\n"
+    "    let toward = normalize(scene.eye.xyz - center.xyz);\n"
+    "    var side = cross(vec3f(0.0, 1.0, 0.0), toward);\n"
+    "    if (dot(side, side) < 0.0001) { side = vec3f(1.0, 0.0, 0.0); }\n" // looking straight down at it
+    "    side = normalize(side);\n"
+    "    let up = cross(toward, side);\n"
+    "    let world = center.xyz + (side * corner.x + up * corner.y) * center.w;\n"
+    "    var o: VOut;\n"
+    "    o.position = scene.view_proj * vec4f(world, 1.0);\n"
+    "    o.corner = corner;\n"
+    "    o.color = color;\n"
+    "    return o;\n"
+    "}\n"
+    "\n"
+    "@fragment fn fs(i: VOut) -> @location(0) vec4f {\n"
+    "    let fade = max(0.0, 1.0 - dot(i.corner, i.corner));\n"
+    "    return vec4f(i.color.rgb, i.color.a * fade * fade);\n"
+    "}\n";
+
 static const char render_shader_line[] =
     "struct Scene { view_proj: mat4x4f };\n" // only the start of the mesh Scene
     "@group(0) @binding(0) var<uniform> scene: Scene;\n"
@@ -226,7 +260,7 @@ static const char render_shader_line[] =
     "struct Particle {\n" \
     "    position: vec3f, age: f32,\n"         /* age and lifetime in seconds. age >= lifetime: dead (0, 0 too) */ \
     "    velocity: vec3f, lifetime: f32,\n" \
-    "    size: f32, color_start: u32, color_end: u32, anchor: u32,\n" /* colors packed 8 bits each, rgba */ \
+    "    size: f32, color_start: u32, color_end: u32, anchor_and_type: u32,\n" /* colors packed 8 bits each, rgba. anchor in the low 8 bits, emitter type above */ \
     "};\n" \
     "struct Anchor {\n" \
     "    position: vec4f,\n" /* world */ \
@@ -241,16 +275,20 @@ static const char render_shader_line[] =
     "    previous: vec4f,\n"  /* where it was last frame. w = size */ \
     "    direction: vec4f,\n" /* w = speed */ \
     "    velocity: vec4f,\n"  /* w = speed spread */ \
-    "    lifetime: f32, lifetime_spread: f32, anchor: u32, pad: u32,\n" /* anchor: 1 + its index, 0 = world */ \
+    "    lifetime: f32, lifetime_spread: f32, anchor: u32, emitter_type: u32,\n" /* anchor: 1 + its index, 0 = world */ \
     "    first: u32, count: u32, color_start: u32, color_end: u32,\n" /* first: its first new particle this frame */ \
+    "};\n" \
+    "struct EmitterType {\n" \
+    "    keep: f32, stretch: f32, pad0: f32, pad1: f32,\n" /* keep: share of velocity kept this frame (drag). stretch: seconds of movement a streak shows */ \
     "};\n" \
     "struct Frame {\n" \
     "    view_proj: mat4x4f,\n" \
     "    eye: vec4f,\n"          /* w = frame seconds */ \
-    "    camera_right: vec4f,\n" /* w = stretch, seconds of movement a streak shows */ \
-    "    camera_up: vec4f,\n"    /* w = share of velocity kept this frame (drag) */ \
+    "    camera_right: vec4f,\n" \
+    "    camera_up: vec4f,\n" \
     "    capacity: u32, head: u32, spawn_total: u32, emitter_count: u32,\n" \
     "    seed: u32, slot_count: u32, pad0: u32, pad1: u32,\n" \
+    "    emitter_types: array<EmitterType, 16>,\n" \
     "    anchors: array<Anchor, 64>,\n" \
     "    emitters: array<Emitter, 16>,\n" \
     "};\n" \
@@ -267,7 +305,8 @@ static const char render_shader_particle_move[] =
     "    let age = particles[i].age;\n"
     "    if (age >= particles[i].lifetime) { return; }\n" // dead: read 8 bytes, write nothing
     "    let seconds = frame.eye.w;\n"
-    "    let velocity = particles[i].velocity * frame.camera_up.w;\n"
+    "    let emitter_type = frame.emitter_types[particles[i].anchor_and_type >> 8u];\n"
+    "    let velocity = particles[i].velocity * emitter_type.keep;\n"
     "    particles[i].velocity = velocity;\n"
     "    particles[i].position = particles[i].position + velocity * seconds;\n"
     "    particles[i].age = age + seconds;\n"
@@ -324,7 +363,7 @@ static const char render_shader_particle_spawn[] =
     "        particle.velocity = velocity;\n"
     "        particle.position = mix(emitter.previous.xyz, emitter.position.xyz, along) + velocity * age;\n"
     "    }\n"
-    "    particle.anchor = emitter.anchor;\n"
+    "    particle.anchor_and_type = emitter.anchor | (emitter.emitter_type << 8u);\n"
     "    particle.age = age;\n"
     "    particle.lifetime = lifetime;\n"
     "    particle.size = emitter.previous.w;\n"
@@ -355,8 +394,9 @@ static const char render_shader_particle_draw[] =
     "    }\n"
     "    var position = particle.position;\n"
     "    var velocity = particle.velocity;\n"
-    "    if (particle.anchor > 0u) {\n" // from the anchor's space into the world, where the anchor is this frame
-    "        let anchor = frame.anchors[particle.anchor - 1u];\n"
+    "    let anchor_index = particle.anchor_and_type & 255u;\n"
+    "    if (anchor_index > 0u) {\n" // from the anchor's space into the world, where the anchor is this frame
+    "        let anchor = frame.anchors[anchor_index - 1u];\n"
     "        position = anchor.position.xyz + rotate(anchor.rotation, position);\n"
     "        velocity = rotate(anchor.rotation, velocity);\n"
     "    }\n"
@@ -365,7 +405,7 @@ static const char render_shader_particle_draw[] =
     "    var across = frame.camera_up.xyz;\n"
     "    var half_length = particle.size;\n"
     "    let speed = length(velocity);\n"
-    "    let streak = speed * frame.camera_right.w;\n"
+    "    let streak = speed * frame.emitter_types[particle.anchor_and_type >> 8u].stretch;\n"
     "    if (streak > particle.size * 0.1) {\n"
     "        let direction = velocity / speed;\n"
     "        let sideways = cross(direction, normalize(frame.eye.xyz - position));\n"

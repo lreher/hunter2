@@ -27,7 +27,9 @@
 #include "engine/object.c"
 #include "engine/actuator.c"
 #include "engine/emitter.c"
+#include "engine/placing.c"
 #include "engine/engine.c"
+#include "engine/panel.c"
 
 #include "demo/demo.h"
 #include "demo/balls.c"

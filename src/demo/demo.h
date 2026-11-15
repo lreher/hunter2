@@ -23,6 +23,8 @@ extern Demo demo_list[DEMO_COUNT];
 
 // set by the game every frame: 1 while the free camera has the keys and mouse, so the demo leaves them alone
 extern i32 demo_free_camera;
+#define DEMO_FAR 400.0f // m, how far the camera draws unless a demo asks for more
+extern f32 demo_far;    // m, set in a demo's init (hunter2: its planets are kilometers apart)
 
 // A camera placed by the demo, like a chase camera. The game uses it unless the free fly camera is on
 typedef struct {

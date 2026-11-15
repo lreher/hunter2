@@ -38,6 +38,50 @@ void plat_ui_group(const char *name) {
     js_ui_group(name, str_len(name));
 }
 
+void plat_ui_fold(const char *name, const char *note) {
+    js_ui_fold(name, str_len(name), note, str_len(note));
+}
+
+void plat_ui_fold_end(void) {
+    js_ui_fold_end();
+}
+
+void plat_ui_row(const char *name, const char *note) {
+    js_ui_row(name, str_len(name), note, str_len(note));
+}
+
+void plat_ui_button(const char *label, const char *options, i32 *target, i32 value) {
+    js_ui_button(label, str_len(label), options, str_len(options), target, value);
+}
+
+void plat_ui_pick(const char *name, const char *options, i32 picked, i32 *target, i32 value) {
+    js_ui_pick(name, str_len(name), options, str_len(options), picked, target, value);
+}
+
+void plat_ui_fold_button(const char *label, i32 *target, i32 value) {
+    js_ui_fold_button(label, str_len(label), target, value);
+}
+
+void plat_ui_fold_rename(char *name, i32 capacity, i32 *target, i32 value) {
+    js_ui_fold_rename(name, capacity, target, value);
+}
+
+void plat_ui_text(const char *name, char *text, i32 capacity, i32 *changed) {
+    js_ui_text(name, str_len(name), text, capacity, changed);
+}
+
+void plat_ui_block(const char *name) {
+    js_ui_block(name, str_len(name));
+}
+
+void plat_ui_block_end(void) {
+    js_ui_block_end();
+}
+
+void plat_ui_color(const char *name, f32 *rgb) {
+    js_ui_color(name, str_len(name), rgb);
+}
+
 void plat_ui_choice(const char *name, const char *options, i32 *value) {
     js_ui_choice(name, str_len(name), options, str_len(options), value);
 }

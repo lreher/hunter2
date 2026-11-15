@@ -8,7 +8,8 @@
 // turn actuators and emitters, written out as plain tables below. Here too: the chase camera (not a part yet), the
 // screen marks, and a debug grid to see it move.
 // Click the canvas to lock the mouse, then the mouse moves the aim and the ship turns toward it, W/S thrust, A/D side
-// thrust, Q/E roll, Shift/Control thrust up/down, Space boost, right mouse button drift, Esc lets the mouse go.
+// thrust, Q/E roll, Shift/Control thrust up/down, Space boost, right mouse button drift, hold the left mouse button
+// to fire (bullets: an emitter type that sends out copies of the object "bullet"), Esc lets the mouse go.
 // Backspace: free fly camera and back.
 
 #define HUNTER2_GRID_SPACING 10.0f // m
@@ -19,7 +20,7 @@ static i32 hunter2_grid = 1; // panel: debug grid on or off
 
 // ---- The parts. Defaults = the user's saved settings (2026-11-15). In the ship's axes: nose -z, y up, right wing +x
 
-enum { HUNTER2_SHIP, HUNTER2_OBJECT_COUNT };
+enum { HUNTER2_SHIP, HUNTER2_BULLET, HUNTER2_PLANET, HUNTER2_OBJECT_COUNT };
 #define HUNTER2_DRIFT INPUT_KEY(KEY_MOUSE_RIGHT) // hold: no thrust, less drag, the ship keeps its speed while it turns
 static Object hunter2_objects[HUNTER2_OBJECT_COUNT] = {
     [HUNTER2_SHIP] = {
@@ -27,8 +28,25 @@ static Object hunter2_objects[HUNTER2_OBJECT_COUNT] = {
         .drag = 0.5f,     // top speed 140 m/s, 350 boosting
         .drag_cut = 80,   // drag 0.5 -> 0.1 per second while drifting
         .drag_cut_input = HUNTER2_DRIFT,
+        .radius = 0.9f,   // its ball for gravity and hits: the wing tips and the nose
         .model = -1, .size = 1, .color = {0.85f, 0.87f, 0.92f}, // model built in hunter2_init
     },
+    // not in the world itself: the machine gun emitters send out copies. no drag: it keeps its speed until its life is up
+    [HUNTER2_BULLET] = {
+        .name = "bullet", .copies_only = 1, .mass = 0.1f, .drag = 0, .lifetime = 2,
+        .model = -1, .size = 0.25f, .color = {1.0f, 0.8f, 0.35f}, .glow = 1, .halo = 1, // a ball, built in hunter2_init
+    },
+    // put down by the universe's placing "planets", each its own size. mass from density, like Gravity Cloud
+    [HUNTER2_PLANET] = {
+        .name = "planet", .copies_only = 1, .density = 1000, .mass = 1,
+        .model = -1, .size = 1, .color = {0.55f, 0.5f, 0.45f}, // a finer ball, built in hunter2_init
+    },
+};
+
+// the universe (user): one placing for now. 150 planets 20 to 200 m across in a ball 5 km across (user: "lets try that")
+static Placing hunter2_placings[] = {
+    {.name = "planets", .object = HUNTER2_PLANET, .count = 150, .spread = 5000, .size_min = 20, .size_max = 200,
+     .speed_min = 0, .speed_max = 20},
 };
 
 // names for now (focus/engine.md)
@@ -36,7 +54,7 @@ enum {
     HUNTER2_ACTUATOR_TYPE_ENGINE, HUNTER2_ACTUATOR_TYPE_REVERSE, HUNTER2_ACTUATOR_TYPE_SIDE, HUNTER2_ACTUATOR_TYPE_LIFT,
     HUNTER2_ACTUATOR_TYPE_PITCH, HUNTER2_ACTUATOR_TYPE_YAW, HUNTER2_ACTUATOR_TYPE_ROLL, HUNTER2_ACTUATOR_TYPE_COUNT
 };
-static ActuatorType hunter2_actuator_types[HUNTER2_ACTUATOR_TYPE_COUNT] = {
+static ActuatorType hunter2_actuator_types[ENGINE_MAX_ACTUATOR_TYPES] = { // the places after ours: new ones from the panel
     // thrust ramps: response 4 = 63 % in 0.25 s, 95 % in 0.75 s
     [HUNTER2_ACTUATOR_TYPE_ENGINE] = {.name = "engine", .kind = ACTUATOR_PUSH, .force = 70000, .boost = 150, .cutoff = 10, .response = 4},
     [HUNTER2_ACTUATOR_TYPE_REVERSE] = {.name = "reverse", .kind = ACTUATOR_PUSH, .force = 45000, .cutoff = 10, .response = 4},
@@ -54,57 +72,83 @@ enum {
     HUNTER2_PITCH, HUNTER2_YAW, HUNTER2_ROLL, HUNTER2_ACTUATOR_COUNT
 };
 static Actuator hunter2_actuators[HUNTER2_ACTUATOR_COUNT] = {
-    [HUNTER2_ENGINE] = {.type = HUNTER2_ACTUATOR_TYPE_ENGINE, .object = HUNTER2_SHIP, .direction = {0, 0, -1},
+    [HUNTER2_ENGINE] = {.name = "engine", .type = HUNTER2_ACTUATOR_TYPE_ENGINE, .object = HUNTER2_SHIP, .direction = {0, 0, -1},
                         .input = INPUT_KEY(KEY_W), .block = HUNTER2_DRIFT, .boost = INPUT_KEY(KEY_SPACE)},
-    [HUNTER2_REVERSE] = {.type = HUNTER2_ACTUATOR_TYPE_REVERSE, .object = HUNTER2_SHIP, .direction = {0, 0, 1},
+    [HUNTER2_REVERSE] = {.name = "reverse", .type = HUNTER2_ACTUATOR_TYPE_REVERSE, .object = HUNTER2_SHIP, .direction = {0, 0, 1},
                          .input = INPUT_KEY(KEY_S), .block = HUNTER2_DRIFT},
-    [HUNTER2_RIGHT] = {.type = HUNTER2_ACTUATOR_TYPE_SIDE, .object = HUNTER2_SHIP, .direction = {1, 0, 0},
+    [HUNTER2_RIGHT] = {.name = "right", .type = HUNTER2_ACTUATOR_TYPE_SIDE, .object = HUNTER2_SHIP, .direction = {1, 0, 0},
                        .input = INPUT_KEY(KEY_D), .block = HUNTER2_DRIFT},
-    [HUNTER2_LEFT] = {.type = HUNTER2_ACTUATOR_TYPE_SIDE, .object = HUNTER2_SHIP, .direction = {-1, 0, 0},
+    [HUNTER2_LEFT] = {.name = "left", .type = HUNTER2_ACTUATOR_TYPE_SIDE, .object = HUNTER2_SHIP, .direction = {-1, 0, 0},
                       .input = INPUT_KEY(KEY_A), .block = HUNTER2_DRIFT},
-    [HUNTER2_UP] = {.type = HUNTER2_ACTUATOR_TYPE_LIFT, .object = HUNTER2_SHIP, .direction = {0, 1, 0},
+    [HUNTER2_UP] = {.name = "up", .type = HUNTER2_ACTUATOR_TYPE_LIFT, .object = HUNTER2_SHIP, .direction = {0, 1, 0},
                     .input = INPUT_KEY(KEY_SHIFT), .block = HUNTER2_DRIFT},
-    [HUNTER2_DOWN] = {.type = HUNTER2_ACTUATOR_TYPE_LIFT, .object = HUNTER2_SHIP, .direction = {0, -1, 0},
+    [HUNTER2_DOWN] = {.name = "down", .type = HUNTER2_ACTUATOR_TYPE_LIFT, .object = HUNTER2_SHIP, .direction = {0, -1, 0},
                       .input = INPUT_KEY(KEY_CONTROL), .block = HUNTER2_DRIFT},
-    [HUNTER2_PITCH] = {.type = HUNTER2_ACTUATOR_TYPE_PITCH, .object = HUNTER2_SHIP, .direction = {1, 0, 0},
+    [HUNTER2_PITCH] = {.name = "pitch", .type = HUNTER2_ACTUATOR_TYPE_PITCH, .object = HUNTER2_SHIP, .direction = {1, 0, 0},
                        .input = INPUT_AIM_PITCH},
-    [HUNTER2_YAW] = {.type = HUNTER2_ACTUATOR_TYPE_YAW, .object = HUNTER2_SHIP, .direction = {0, -1, 0},
+    [HUNTER2_YAW] = {.name = "yaw", .type = HUNTER2_ACTUATOR_TYPE_YAW, .object = HUNTER2_SHIP, .direction = {0, -1, 0},
                      .input = INPUT_AIM_YAW},
-    // E rolls the right wing down, Q left. Neither: the ship levels itself (auto level)
-    [HUNTER2_ROLL] = {.type = HUNTER2_ACTUATOR_TYPE_ROLL, .object = HUNTER2_SHIP, .direction = {0, 0, -1},
+    // E rolls the right wing down, Q left. Neither: nothing (space has no up), or the ship levels itself to world up
+    // when "when idle" is level (fallback_on 1)
+    [HUNTER2_ROLL] = {.name = "roll", .type = HUNTER2_ACTUATOR_TYPE_ROLL, .object = HUNTER2_SHIP, .direction = {0, 0, -1},
                       .input = INPUT_KEY_PAIR(KEY_E, KEY_Q), .fallback = INPUT_TILT},
 };
 
 // names for now (user: "main" is too nondescript, later maybe ship_propulsion_emitter / ship_thruster_emitter)
-enum { HUNTER2_EMITTER_TYPE_MAIN, HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_EMITTER_TYPE_COUNT };
-static EmitterType hunter2_emitter_types[HUNTER2_EMITTER_TYPE_COUNT] = {
+// spark numbers = the user's save (2026-11-15, session 4). "reverse" is the user's own type, made in the panel
+enum {
+    HUNTER2_EMITTER_TYPE_MAIN, HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_EMITTER_TYPE_REVERSE, HUNTER2_EMITTER_TYPE_MACHINE_GUN,
+    HUNTER2_EMITTER_TYPE_COUNT
+};
+static EmitterType hunter2_emitter_types[ENGINE_MAX_EMITTER_TYPES] = {
     [HUNTER2_EMITTER_TYPE_MAIN] = {
         .name = "main", .rate = 5000, .speed = 28.5f, .speed_spread = 5, .base_speed = 30, .cone = 0.15f,
-        .cone_squeeze = 0.3f, .lifetime = 1.0f, .lifetime_spread = 1.55f, .size = 0.05f,
-        .color_start = {1.0f, 0.9f, 0.6f}, .color_end = {1.0f, 0.3f, 0.05f},
+        .cone_squeeze = 0.3f, .lifetime = 1.5f, .lifetime_spread = 1, .size = 0.05f,
+        .color_start = {1.0f, 0.9f, 0.6f}, .color_end = {1.0f, 0.3f, 0.05f}, .stretch = 0, .drag = 0.5f,
     },
-    // rate 5000: about what side and up/down fired at full before (their force share of the main engine's)
     [HUNTER2_EMITTER_TYPE_SIDE] = {
-        .name = "side", .rate = 5000, .speed = 28.5f, .speed_spread = 5, .base_speed = 30, .cone = 0.15f,
-        .cone_squeeze = 0.3f, .lifetime = 1.0f, .lifetime_spread = 1.55f, .size = 0.05f,
-        .color_start = {1.0f, 0.9f, 0.6f}, .color_end = {1.0f, 0.3f, 0.05f},
+        .name = "side", .rate = 800, .speed = 5, .speed_spread = 5, .base_speed = 16, .cone = 0.2f,
+        .cone_squeeze = 0.3f, .lifetime = 1.5f, .lifetime_spread = 1, .size = 0.02f,
+        .color_start = {1.0f, 0.9f, 0.6f}, .color_end = {1.0f, 0.3f, 0.05f}, .stretch = 0, .drag = 0.55f,
+    },
+    [HUNTER2_EMITTER_TYPE_REVERSE] = {
+        .name = "reverse", .rate = 900, .speed = 30, .speed_spread = 25.5f, .base_speed = 50, .cone = 0.1f,
+        .cone_squeeze = 0.2f, .lifetime = 2, .lifetime_spread = 1, .size = 0.02f,
+        .color_start = {1.0f, 0.9f, 0.6f}, .color_end = {1.0f, 0.3f, 0.05f}, .stretch = 0, .drag = 1,
+    },
+    // bullets: 15 a second from each wing, 400 m/s on top of the ship's own speed
+    [HUNTER2_EMITTER_TYPE_MACHINE_GUN] = {
+        .name = "machine gun", .emits = EMITS_OBJECTS, .object = HUNTER2_BULLET, .rate = 15, .speed = 400, .cone = 0.003f,
     },
 };
 
 // every nozzle shoots against the push it gives, input = how hard its actuator pushes
-#define HUNTER2_EMITTER(type_, actuator, x, y, z, dx, dy, dz) \
-    {.type = type_, .object = HUNTER2_SHIP, .position = {x, y, z}, .direction = {dx, dy, dz}, .input = INPUT_ACTUATOR(actuator)}
-#define HUNTER2_EMITTER_COUNT 8
+#define HUNTER2_EMITTER(name_, type_, actuator, x, y, z, dx, dy, dz) \
+    {.name = name_, .type = type_, .object = HUNTER2_SHIP, .position = {x, y, z}, .direction = {dx, dy, dz}, .input = INPUT_ACTUATOR(actuator)}
+#define HUNTER2_EMITTER_COUNT 12
 static Emitter hunter2_emitters[HUNTER2_EMITTER_COUNT] = {
-    HUNTER2_EMITTER(HUNTER2_EMITTER_TYPE_MAIN, HUNTER2_ENGINE, -0.4f, 0.03f, 0.62f, 0, 0, 1),  // two engines on the back face,
-    HUNTER2_EMITTER(HUNTER2_EMITTER_TYPE_MAIN, HUNTER2_ENGINE, 0.4f, 0.03f, 0.62f, 0, 0, 1),   //   left and right of the middle
-    HUNTER2_EMITTER(HUNTER2_EMITTER_TYPE_MAIN, HUNTER2_REVERSE, -0.17f, 0, -0.85f, 0, 0, -1),  // two on the front edges, one
-    HUNTER2_EMITTER(HUNTER2_EMITTER_TYPE_MAIN, HUNTER2_REVERSE, 0.17f, 0, -0.85f, 0, 0, -1),   //   each side of the nose
-    HUNTER2_EMITTER(HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_RIGHT, -0.6f, 0.09f, 0.4f, -1, 0, 0),   // on top of the left wing
-    HUNTER2_EMITTER(HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_LEFT, 0.6f, 0.09f, 0.4f, 1, 0, 0),      // on top of the right wing
-    HUNTER2_EMITTER(HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_UP, 0, -0.25f, 0.5f, 0, -1, 0),         // the keel
-    HUNTER2_EMITTER(HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_DOWN, 0, 0.35f, 0.45f, 0, 1, 0),        // the top ridge
+    HUNTER2_EMITTER("engine left", HUNTER2_EMITTER_TYPE_MAIN, HUNTER2_ENGINE, -0.4f, 0.03f, 0.62f, 0, 0, 1),  // two engines on the back face,
+    HUNTER2_EMITTER("engine right", HUNTER2_EMITTER_TYPE_MAIN, HUNTER2_ENGINE, 0.4f, 0.03f, 0.62f, 0, 0, 1),   //   left and right of the middle
+    HUNTER2_EMITTER("reverse left", HUNTER2_EMITTER_TYPE_REVERSE, HUNTER2_REVERSE, -0.17f, 0, -0.85f, 0, 0, -1),  // two on the front edges,
+    HUNTER2_EMITTER("reverse right", HUNTER2_EMITTER_TYPE_REVERSE, HUNTER2_REVERSE, 0.17f, 0, -0.85f, 0, 0, -1),   //   one each side of the nose
+    HUNTER2_EMITTER("left wing", HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_RIGHT, -0.6f, 0.09f, 0.4f, -1, 0, 0),   // on top of the left wing
+    HUNTER2_EMITTER("right wing", HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_LEFT, 0.6f, 0.09f, 0.4f, 1, 0, 0),      // on top of the right wing
+    // up / down: the middle of each wing, a little off its faces (upper y 0.106, lower y -0.067 at x 0.45, z 0.3),
+    // just behind the machine guns
+    HUNTER2_EMITTER("left wing bottom", HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_UP, -0.45f, -0.08f, 0.3f, 0, -1, 0),
+    HUNTER2_EMITTER("right wing bottom", HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_UP, 0.45f, -0.08f, 0.3f, 0, -1, 0),
+    HUNTER2_EMITTER("left wing top", HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_DOWN, -0.45f, 0.12f, 0.3f, 0, 1, 0),
+    HUNTER2_EMITTER("right wing top", HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_DOWN, 0.45f, 0.12f, 0.3f, 0, 1, 0),
+    // under the middle of each wing, a little below its lower face (y -0.056 there), firing along the nose
+    {.name = "under left wing", .type = HUNTER2_EMITTER_TYPE_MACHINE_GUN, .object = HUNTER2_SHIP, .position = {-0.45f, -0.1f, 0.2f},
+     .direction = {0, 0, -1}, .input = INPUT_KEY(KEY_MOUSE_LEFT)},
+    {.name = "under right wing", .type = HUNTER2_EMITTER_TYPE_MACHINE_GUN, .object = HUNTER2_SHIP, .position = {0.45f, -0.1f, 0.2f},
+     .direction = {0, 0, -1}, .input = INPUT_KEY(KEY_MOUSE_LEFT)},
 };
+
+// places for bullets in flight: 2 emitters x 15 a second x 2 s = 60, room to spare when the panel turns them up
+#define HUNTER2_COPY_CAPACITY 2048 // bullets and planets
+static ObjectCopy hunter2_copies[HUNTER2_COPY_CAPACITY];
 
 static Engine hunter2_engine = {
     .objects = hunter2_objects, .object_count = HUNTER2_OBJECT_COUNT,
@@ -112,10 +156,17 @@ static Engine hunter2_engine = {
     .actuators = hunter2_actuators, .actuator_count = HUNTER2_ACTUATOR_COUNT,
     .emitter_types = hunter2_emitter_types, .emitter_type_count = HUNTER2_EMITTER_TYPE_COUNT,
     .emitters = hunter2_emitters, .emitter_count = HUNTER2_EMITTER_COUNT,
+    .copies = hunter2_copies, .copy_capacity = HUNTER2_COPY_CAPACITY,
+    .placings = hunter2_placings, .placing_count = (i32)(sizeof hunter2_placings / sizeof hunter2_placings[0]),
+    // a 200 m planet pulls the ship 2.8 m/s^2 at its surface, two 100 m planets 500 m apart pull each other 0.001 m/s^2
+    .gravity = 100000,
+    .bounce = 0.3f, // as Gravity Cloud
 };
 #define hunter2_ship (&hunter2_objects[HUNTER2_SHIP])
 
 static RenderModel hunter2_ship_model = -1; // built once, kept across demo switches
+static RenderModel hunter2_ball_model = -1;   // bullets
+static RenderModel hunter2_planet_model = -1; // the same, cut finer: planets are seen up close
 
 // a wedge: nose, two wing tips, a low ridge on top and a keel below, all meeting at the back. 1.8 m long and wide
 static void hunter2_build_ship_model(void) {
@@ -130,6 +181,40 @@ static void hunter2_build_ship_model(void) {
         left, top, right,     left, right, bottom,  // back
     };
     hunter2_ship_model = render_create_model(corners, (i32)(sizeof(corners) / sizeof(corners[0])) / 3);
+}
+
+// a ball 1 m across the middle (drawn at the object's size): the 8 faces of an octahedron, each cut into cuts x cuts
+// smaller triangles, every corner pushed out onto the ball. 4 cuts: 128 flat faces, 16 cuts: 2048
+#define HUNTER2_BALL_MAX_CUTS 16
+static RenderModel hunter2_build_ball_model(i32 cuts) {
+    static Vector3 corners[8 * HUNTER2_BALL_MAX_CUTS * HUNTER2_BALL_MAX_CUTS * 3];
+    i32 count = 0;
+    for (i32 face = 0; face < 8; face++) {
+        // the face's three corners on the axes: x, y, z, each + or - by the face's bits
+        Vector3 a = vector3_create(face & 1 ? -1 : 1, 0, 0);
+        Vector3 b = vector3_create(0, face & 2 ? -1 : 1, 0);
+        Vector3 c = vector3_create(0, 0, face & 4 ? -1 : 1);
+        for (i32 row = 0; row < cuts; row++) {
+            for (i32 column = 0; column < cuts - row; column++) {
+                // a point on the face: row steps from a toward b, column from a toward c
+                Vector3 points[4];
+                i32 steps[4][2] = {{row, column}, {row + 1, column}, {row, column + 1}, {row + 1, column + 1}};
+                for (i32 k = 0; k < 4; k++) {
+                    real along_b = (real)steps[k][0] / cuts, along_c = (real)steps[k][1] / cuts;
+                    Vector3 point = vector3_multiplied(a, 1 - along_b - along_c);
+                    vector3_add_scaled(&point, b, along_b);
+                    vector3_add_scaled(&point, c, along_c);
+                    vector3_normalize(&point);
+                    points[k] = vector3_multiplied(point, 0.5f);
+                }
+                corners[count++] = points[0]; corners[count++] = points[1]; corners[count++] = points[2];
+                if (column < cuts - row - 1) {
+                    corners[count++] = points[1]; corners[count++] = points[3]; corners[count++] = points[2];
+                }
+            }
+        }
+    }
+    return render_create_model(corners, count / 3);
 }
 
 // ---- The chase camera: behind and above the ship, fixed to it in the camera's axes, so speeding up never drags it
@@ -245,21 +330,34 @@ static void hunter2_draw_hint(void) {
 
 // ---- The demo
 
-static void hunter2_init(void) {
-    if (hunter2_ship_model < 0) hunter2_build_ship_model();
-    hunter2_ship->model = hunter2_ship_model;
-    engine_start(&hunter2_engine);
-    hunter2_camera.rotation = hunter2_camera.previous_rotation = hunter2_ship->rotation;
-    hunter2_camera.distance = hunter2_camera.previous_distance = hunter2_camera_tuning.distance;
-    engine_add_sliders(&hunter2_engine);
+static void hunter2_add_panel(void) {
+    engine_add_panel(&hunter2_engine);
     hunter2_add_camera_sliders();
     plat_ui_group("debug");
     plat_ui_choice("grid", "Off|On", &hunter2_grid);
 }
 
+static void hunter2_init(void) {
+    if (hunter2_ship_model < 0) hunter2_build_ship_model();
+    hunter2_ship->model = hunter2_ship_model;
+    if (hunter2_ball_model < 0) hunter2_ball_model = hunter2_build_ball_model(4);
+    if (hunter2_planet_model < 0) hunter2_planet_model = hunter2_build_ball_model(16);
+    hunter2_objects[HUNTER2_BULLET].model = hunter2_ball_model;
+    hunter2_objects[HUNTER2_PLANET].model = hunter2_planet_model;
+    demo_far = 20000; // planets kilometers apart
+    engine_start(&hunter2_engine);
+    hunter2_camera.rotation = hunter2_camera.previous_rotation = hunter2_ship->rotation;
+    hunter2_camera.distance = hunter2_camera.previous_distance = hunter2_camera_tuning.distance;
+    hunter2_add_panel();
+}
+
 // once per browser frame: the mouse moves the ship's aim
 static void hunter2_update(f32 seconds) {
     (void)seconds;
+    if (engine_update_panel(&hunter2_engine)) { // a panel click changed the parts: the panel shows them again
+        plat_ui_clear();
+        hunter2_add_panel();
+    }
     Vector3 camera_up = quaternion_rotated_vector(hunter2_camera.rotation, vector3_create(0, 1, 0));
     object_update_aim(hunter2_ship, camera_up, plat_mouse_locked() && !demo_free_camera);
 }

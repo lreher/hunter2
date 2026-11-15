@@ -13,11 +13,11 @@ f32 actuator_strength(Engine *engine, Actuator *actuator) {
     return full > 0 ? actuator->now / full : 0;
 }
 
-// block first, then input, then fallback when input reads 0
+// block first, then input, then fallback when input reads 0 (only while fallback_on)
 FORCE_INLINE real actuator_read_input(Engine *engine, Actuator *actuator, Object *object) {
     if (source_read(engine, actuator->block, object) != 0) return 0;
     real input = source_read(engine, actuator->input, object);
-    if (input == 0) input = source_read(engine, actuator->fallback, object);
+    if (input == 0 && actuator->fallback_on) input = source_read(engine, actuator->fallback, object);
     return input;
 }
 

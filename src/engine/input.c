@@ -33,6 +33,24 @@ f32 source_read(Engine *engine, Source source, Object *object) {
     return 0;
 }
 
+i32 source_describe(Engine *engine, Source source, char *text, i32 capacity) {
+    switch (source.kind) {
+    case SOURCE_ALWAYS: return str_append(text, capacity, "always");
+    case SOURCE_KEY: return str_append(text, capacity, plat_key_name(source.index));
+    case SOURCE_KEY_PAIR:
+        str_append(text, capacity, plat_key_name(source.index));
+        str_append(text, capacity, "/");
+        return str_append(text, capacity, plat_key_name(source.negative));
+    case SOURCE_AIM_PITCH: return str_append(text, capacity, "aim up/down");
+    case SOURCE_AIM_YAW: return str_append(text, capacity, "aim left/right");
+    case SOURCE_TILT: return str_append(text, capacity, "level");
+    case SOURCE_ACTUATOR:
+        if (source.index < 0 || source.index >= engine->actuator_count) return str_append(text, capacity, "?");
+        return str_append(text, capacity, engine->actuators[source.index].name);
+    }
+    return str_len(text);
+}
+
 void object_update_aim(Object *object, Vector3 camera_up, i32 on) {
     Vector3 forward = object_axis(object, vector3_create(0, 0, -1));
     if (!on) {

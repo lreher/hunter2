@@ -27,7 +27,11 @@ void render_draw_box(Vector3 center, Vector3 half_size, f32 r, f32 g, f32 b); //
 typedef i32 RenderModel;
 RenderModel render_create_model(const Vector3 *corners, i32 triangle_count);
 // scale: per axis, 1 = as built. rotation turns the model around its own origin, then it moves to position
-void render_draw_model(RenderModel model, Vector3 position, Quaternion rotation, Vector3 scale, f32 r, f32 g, f32 b);
+// glow: 0 = lit by the sun and sky, 1 = drawn in its full color everywhere, no shading (a bullet). between: a mix
+void render_draw_model(RenderModel model, Vector3 position, Quaternion rotation, Vector3 scale, f32 r, f32 g, f32 b,
+                       f32 glow);
+// a soft light around center, brightest there, gone at radius (m). added on top of what is behind it (a halo)
+void render_draw_glow(Vector3 center, f32 radius, f32 r, f32 g, f32 b);
 void render_draw_line(Vector3 from, Vector3 to, f32 r, f32 g, f32 b);         // 1 pixel wide (WebGPU lines)
 
 // Particles: glowing sparks that live on the GPU, look only (render/particles.c). Keep a RenderEmitter, set its
@@ -54,17 +58,19 @@ typedef struct {
     f32 lifetime, lifetime_spread; // seconds, give or take lifetime_spread
     f32 size;                  // m, half the width of the glow
     Vector3 color_start, color_end; // 0..1, the color at birth and at death. it fades out on the way
+    i32 type;                  // 0..15, which emitter type it is. its sparks remember it for their whole life
+    f32 drag;                  // share of speed lost per second, for every live spark of this type
+    f32 stretch;               // seconds: a moving spark of this type is drawn as a streak as long as the way it goes in this time
     RenderEmitterMemory memory;
 } RenderEmitter;
 // between render_begin and render_end. up to 16 per frame. local emitters: up to 64 in all (their anchors are never
-// given back), past that they act as world emitters
+// given back), past that they act as world emitters. drag and stretch apply to all sparks of its type (older ones
+// too), so emit every frame even at rate 0, and give emitters of one type the same drag and stretch
 void render_emit(RenderEmitter *emitter);
 
-// For every particle. f32 so panel sliders can point at them
+// For every particle. f32 so a panel slider can point at it
 typedef struct {
     f32 capacity; // slots in the ring, up to 1048576. must be more than rate * lifetime, or old sparks vanish early
-    f32 drag;     // share of speed lost per second
-    f32 stretch;  // seconds: a moving spark is drawn as a streak as long as the way it goes in this time
 } RenderParticleTuning;
 extern RenderParticleTuning render_particle_tuning;
 i32 render_particle_estimate(void); // particles alive, about (rate * lifetime of this frame's emitters, at most capacity)

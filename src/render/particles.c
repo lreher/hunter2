@@ -15,6 +15,7 @@
 #define PARTICLE_MAX_SLOTS (1 << 20)  // the buffer, 48 MB. the ring in use (render_particle_tuning.capacity) is up to this
 #define PARTICLE_MAX_EMITTERS 16      // render_emit calls per frame
 #define PARTICLE_MAX_ANCHORS 64       // local emitters in all, anchors are never given back
+#define PARTICLE_MAX_TYPES 16         // emitter types. a spark keeps its type next to its anchor (anchor_and_type in shaders.c)
 #define PARTICLE_WORKGROUP 64         // threads per workgroup, matches @workgroup_size in the shaders
 
 // One emitter this frame, as the shaders read it (Emitter in shaders.c, 96 bytes)
@@ -24,7 +25,7 @@ typedef struct {
     f32 direction[4]; // w = speed
     f32 velocity[4];  // w = speed spread
     f32 lifetime, lifetime_spread;
-    u32 anchor, pad;  // anchor: 1 + its index, 0 = world
+    u32 anchor, type; // anchor: 1 + its index, 0 = world. type: 0..PARTICLE_MAX_TYPES - 1
     u32 first, count, color_start, color_end;
 } ParticleEmitterGpu;
 
@@ -34,23 +35,29 @@ typedef struct {
     f32 rotation[4]; // quaternion x, y, z, w
 } ParticleAnchorGpu;
 
+// One emitter type, as the shaders read it (EmitterType in shaders.c): x = share of velocity kept this frame (drag),
+// y = stretch, seconds of movement a streak shows
+typedef struct {
+    f32 keep, stretch, pad0, pad1;
+} ParticleTypeGpu;
+
 // The uniform for all three shaders (Frame in shaders.c)
 typedef struct {
     f32 view_proj[16];
     f32 eye[4];          // w = frame seconds
-    f32 camera_right[4]; // w = stretch
-    f32 camera_up[4];    // w = share of velocity kept this frame
+    f32 camera_right[4];
+    f32 camera_up[4];
     u32 capacity, head, spawn_total, emitter_count;
     u32 seed, slot_count, pad0, pad1;
+    ParticleTypeGpu types[PARTICLE_MAX_TYPES];
     ParticleAnchorGpu anchors[PARTICLE_MAX_ANCHORS];
     ParticleEmitterGpu emitters[PARTICLE_MAX_EMITTERS];
 } ParticleFrame;
 
 RenderParticleTuning render_particle_tuning = {
     .capacity = 262144,
-    .drag = 1.0f,
-    .stretch = 0,
 };
+static f32 particle_type_drag[PARTICLE_MAX_TYPES]; // per second, the last one each type was emitted with
 
 static ParticleFrame particle_frame;
 static GpuHandle particle_frame_buffer;
@@ -146,6 +153,9 @@ void render_emit(RenderEmitter *emitter) {
         memory->carry = 0;
         memory->started = 1;
     }
+    u32 type = emitter->type < 0 ? 0 : emitter->type >= PARTICLE_MAX_TYPES ? PARTICLE_MAX_TYPES - 1 : (u32)emitter->type;
+    particle_type_drag[type] = emitter->drag; // turned into the share kept this frame in render_particles_compute
+    particle_frame.types[type].stretch = emitter->stretch;
     u32 anchor = 0;
     if (emitter->local) {
         if (memory->anchor == 0 && particle_anchor_count < PARTICLE_MAX_ANCHORS) memory->anchor = ++particle_anchor_count;
@@ -174,6 +184,7 @@ void render_emit(RenderEmitter *emitter) {
             .lifetime = emitter->lifetime,
             .lifetime_spread = emitter->lifetime_spread,
             .anchor = anchor,
+            .type = type,
             .first = particle_frame.spawn_total,
             .count = count,
             .color_start = particle_pack_color(emitter->color_start, 1),
@@ -196,10 +207,11 @@ static void render_particles_compute(void) {
     if (particle_awake_seconds <= 0) return;
     u32 capacity = particle_capacity();
     if (particle_head >= capacity) particle_head = 0; // the ring shrank
-    f32 keep = 1 - render_particle_tuning.drag * particle_seconds;
+    for (i32 i = 0; i < PARTICLE_MAX_TYPES; i++) {
+        f32 keep = 1 - particle_type_drag[i] * particle_seconds;
+        particle_frame.types[i].keep = keep < 0 ? 0 : keep;
+    }
     particle_frame.eye[3] = particle_seconds;
-    particle_frame.camera_right[3] = render_particle_tuning.stretch;
-    particle_frame.camera_up[3] = keep < 0 ? 0 : keep;
     particle_frame.capacity = capacity;
     particle_frame.head = particle_head;
     particle_frame.seed = particle_frame_count++ * 0x9E3779B9u;

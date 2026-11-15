@@ -29,6 +29,17 @@ IMPORT("js_ui_slider") void js_ui_slider(const char *name, i32 len, f32 min, f32
 IMPORT("js_ui_choice") void js_ui_choice(const char *name, i32 len, const char *options, i32 options_len, i32 *value);
 IMPORT("js_ui_clear") void js_ui_clear(void);
 IMPORT("js_ui_group") void js_ui_group(const char *name, i32 len);
+IMPORT("js_ui_fold") void js_ui_fold(const char *name, i32 len, const char *note, i32 note_len);
+IMPORT("js_ui_fold_end") void js_ui_fold_end(void);
+IMPORT("js_ui_row") void js_ui_row(const char *name, i32 len, const char *note, i32 note_len);
+IMPORT("js_ui_block") void js_ui_block(const char *name, i32 len);
+IMPORT("js_ui_block_end") void js_ui_block_end(void);
+IMPORT("js_ui_color") void js_ui_color(const char *name, i32 len, f32 *rgb);
+IMPORT("js_ui_text") void js_ui_text(const char *name, i32 len, char *text, i32 capacity, i32 *changed);
+IMPORT("js_ui_button") void js_ui_button(const char *label, i32 len, const char *options, i32 options_len, i32 *target, i32 value);
+IMPORT("js_ui_pick") void js_ui_pick(const char *name, i32 len, const char *options, i32 options_len, i32 picked, i32 *target, i32 value);
+IMPORT("js_ui_fold_button") void js_ui_fold_button(const char *label, i32 len, i32 *target, i32 value);
+IMPORT("js_ui_fold_rename") void js_ui_fold_rename(char *name, i32 capacity, i32 *target, i32 value);
 IMPORT("js_ui_demo") void js_ui_demo(const char *id, i32 id_len, const char *chapter, i32 chapter_len, const char *name, i32 name_len);
 IMPORT("js_ui_demo_bar") void js_ui_demo_bar(i32 *picked);
 IMPORT("js_ui_demo_current") void js_ui_demo_current(i32 index);
@@ -65,9 +76,31 @@ f64 plat_now_ms(void); // milliseconds, for measuring how long things take
 // debug panel. adds a slider that writes straight into *value whenever it moves. call once, at init
 void plat_ui_slider(const char *name, f32 min, f32 max, f32 step, f32 *value);
 void plat_ui_slider_log(const char *name, f32 min, f32 max, f32 step, f32 *value); // small values get more room. min > 0
-void plat_ui_choice(const char *name, const char *options, i32 *value); // options split by |, "A|B|C". a click writes the index into *value
+void plat_ui_choice(const char *name, const char *options, i32 *value);
+void plat_ui_color(const char *name, f32 *rgb); // a color picker writing 3 floats 0..1 (r, g, b). saved as "#rrggbb" // options split by |, "A|B|C". a click writes the index into *value
 void plat_ui_image(const char *name, GpuHandle texture); // file picker, the image goes into the texture (needs COPY_DST + RENDER_ATTACHMENT)
-void plat_ui_group(const char *name);  // a new column in the panel with name on top. the sliders after it go there
+// The panel is a tree of folds along the right edge, all folded at first. A slider's save key is the name of the
+// fold it is in, then its own name ("engine/force N")
+void plat_ui_group(const char *name);  // a fold at the top of the tree (ends any open ones). the controls after it go in it
+void plat_ui_fold(const char *name, const char *note); // a fold inside the current one, note shown dim on the right
+void plat_ui_fold_end(void);           // back out of the fold plat_ui_fold opened
+void plat_ui_row(const char *name, const char *note);  // a line with nothing to open: a name and a dim note
+// a small square group with a title, in the open fold. blocks one after another sit side by side when there is room
+// and stack when not, light lines between them. not part of save keys (those stay fold name + control name)
+void plat_ui_block(const char *name);
+void plat_ui_block_end(void);
+// Clicks that ask C for something write value into *target (C looks at it every frame and sets it back to 0)
+void plat_ui_button(const char *label, const char *options, i32 *target, i32 value); // a clickable line. options
+                                       // "a|b": a click shows them, picking option i writes value + i. "" = writes value
+void plat_ui_pick(const char *name, const char *options, i32 picked, i32 *target, i32 value); // like plat_ui_choice,
+                                       // picked one green, a click on option i writes value + i. not saved
+void plat_ui_fold_button(const char *label, i32 *target, i32 value); // a small word on the open fold's line
+// a double click on the open fold's name lets it be typed. Enter writes the name into name (cut to capacity, ends
+// with 0), then value into *target. Esc puts it back
+void plat_ui_fold_rename(char *name, i32 capacity, i32 *target, i32 value);
+// a text that is saved and loaded with the panel's settings, not shown. a load (or a saved one at start, when it
+// differs) writes it into text and sets *changed to 1
+void plat_ui_text(const char *name, char *text, i32 capacity, i32 *changed);
 void plat_ui_clear(void);            // removes every slider and picker, e.g. before another demo adds its own
 void plat_ui_title(const char *s, u32 color); // big title in the top left corner. color 0xRRGGBB
 i32 plat_ui_title_bottom(void);      // where the title ends, in screen pixels from the top. draw below it

@@ -17,7 +17,7 @@ typedef struct {
 // One drawn object. Layout must match the pipeline attributes below and Sphere in shaders.c (64 bytes).
 typedef struct {
     f32 x, y, z, photo;   // photo: 1 = show the sphere photo facing the camera (spheres only)
-    f32 hx, hy, hz, pad1; // half size per axis (radius for spheres)
+    f32 hx, hy, hz, glow; // half size per axis (radius for spheres). glow 1 = full color, no shading (models)
     f32 qx, qy, qz, qw;   // rotation quaternion. identity until rigid bodies need it
     f32 r, g, b, a;
 } MeshInstance;
@@ -26,6 +26,16 @@ typedef struct {
     f32 x, y, z;
     f32 r, g, b;
 } LineVertex;
+
+// a soft light around a point (render_draw_glow). Layout must match the glow pipeline's attributes
+typedef struct {
+    f32 x, y, z, radius;
+    f32 r, g, b, a;
+} MeshGlow;
+#define MESH_MAX_GLOWS 1024
+static MeshGlow mesh_glows[MESH_MAX_GLOWS];
+static i32 mesh_glow_count;
+static GpuHandle mesh_glow_buffer, mesh_glow_pipeline, mesh_glow_bind_group;
 
 // a unit shape (sphere radius 1, box -1..1), uploaded once
 typedef struct {
@@ -71,7 +81,7 @@ static GpuHandle mesh_box_buffer;
 // One instance range per model in one buffer: model k uses slots k * MESH_MAX_MODEL_INSTANCES and up
 #define MESH_MAX_MODELS 16
 #define MESH_MAX_MODEL_VERTICES 8192 // all models together
-#define MESH_MAX_MODEL_INSTANCES 256 // per model
+#define MESH_MAX_MODEL_INSTANCES 1024 // per model (hunter2: planets and bullets)
 static MeshVertex mesh_model_vertices[MESH_MAX_MODEL_VERTICES];
 static i32 mesh_model_vertices_used;
 static MeshShape mesh_models[MESH_MAX_MODELS];
@@ -304,6 +314,22 @@ static void render_mesh_init(void) {
     lines.cull = GPU_CULL_NONE;
     mesh_line_pipeline = plat_gpu_create_pipeline(&lines);
     mesh_line_bind_group = mesh_create_scene_bind_group(mesh_line_pipeline);
+
+    mesh_glow_buffer = plat_gpu_create_buffer(sizeof(mesh_glows), GPU_BUFFER_VERTEX | GPU_BUFFER_COPY_DST);
+    GpuPipelineDesc glows = {0};
+    glows.shader = plat_gpu_create_shader(render_shader_glow);
+    glows.buffer_count = 1;
+    glows.buffers[0] = (GpuVertexBufferLayout){sizeof(MeshGlow), GPU_STEP_INSTANCE};
+    glows.attribute_count = 2;
+    glows.attributes[0] = (GpuAttribute){0, 0, 0, GPU_VERTEX_FLOAT32X4};  // center, radius
+    glows.attributes[1] = (GpuAttribute){0, 1, 16, GPU_VERTEX_FLOAT32X4}; // color
+    glows.target_format = GPU_FORMAT_SCREEN;
+    glows.blend = GPU_BLEND_ADDITIVE;
+    glows.topology = GPU_TOPOLOGY_TRIANGLE_STRIP;
+    glows.depth = GPU_DEPTH_TEST; // hidden behind solid things, never hides anything
+    glows.cull = GPU_CULL_NONE;
+    mesh_glow_pipeline = plat_gpu_create_pipeline(&glows);
+    mesh_glow_bind_group = mesh_create_scene_bind_group(mesh_glow_pipeline);
 }
 
 static void render_mesh_begin(void) {
@@ -312,6 +338,7 @@ static void render_mesh_begin(void) {
     for (i32 model = 0; model < mesh_model_count; model++) mesh_model_instance_counts[model] = 0;
     mesh_model_instance_total = 0;
     mesh_line_count = 0;
+    mesh_glow_count = 0;
 }
 
 i32 render_world_to_screen(Vector3 point, f32 *x, f32 *y) {
@@ -418,7 +445,8 @@ RenderModel render_create_model(const Vector3 *corners, i32 triangle_count) {
     return mesh_model_count++;
 }
 
-void render_draw_model(RenderModel model, Vector3 position, Quaternion rotation, Vector3 scale, f32 r, f32 g, f32 b) {
+void render_draw_model(RenderModel model, Vector3 position, Quaternion rotation, Vector3 scale, f32 r, f32 g, f32 b,
+                       f32 glow) {
     if (model < 0 || model >= mesh_model_count) return;
     if (mesh_model_instance_counts[model] >= MESH_MAX_MODEL_INSTANCES) return;
     MeshInstance instance = mesh_instance(position, scale, r, g, b);
@@ -426,8 +454,14 @@ void render_draw_model(RenderModel model, Vector3 position, Quaternion rotation,
     instance.qy = rotation.y;
     instance.qz = rotation.z;
     instance.qw = rotation.w;
+    instance.glow = glow;
     mesh_model_instances[model][mesh_model_instance_counts[model]++] = instance;
     mesh_model_instance_total++;
+}
+
+void render_draw_glow(Vector3 center, f32 radius, f32 r, f32 g, f32 b) {
+    if (mesh_glow_count >= MESH_MAX_GLOWS || radius <= 0) return;
+    mesh_glows[mesh_glow_count++] = (MeshGlow){center.x, center.y, center.z, radius, r, g, b, 1};
 }
 
 void render_draw_line(Vector3 from, Vector3 to, f32 r, f32 g, f32 b) {
@@ -604,6 +638,7 @@ static void render_mesh_shadow_pass(void) {
                               mesh_model_instances[model], count * (i32)sizeof(MeshInstance));
     }
     if (mesh_grid_used > 0) plat_gpu_write_buffer(mesh_grid_buffer, 0, mesh_grid, mesh_grid_used * 4);
+    if (mesh_glow_count > 0) plat_gpu_write_buffer(mesh_glow_buffer, 0, mesh_glows, mesh_glow_count * (i32)sizeof(MeshGlow));
     if (mesh_line_count > 0) {
         plat_gpu_write_buffer(mesh_line_buffer, 0, mesh_lines, mesh_line_count * 2 * (i32)sizeof(LineVertex));
     }
@@ -628,5 +663,11 @@ static void render_mesh_draw(void) {
         plat_gpu_set_bind_group(0, mesh_line_bind_group);
         plat_gpu_set_vertex_buffer(0, mesh_line_buffer, 0);
         plat_gpu_draw(mesh_line_count * 2, 1);
+    }
+    if (mesh_glow_count > 0) { // last: added on top of what is there
+        plat_gpu_set_pipeline(mesh_glow_pipeline);
+        plat_gpu_set_bind_group(0, mesh_glow_bind_group);
+        plat_gpu_set_vertex_buffer(0, mesh_glow_buffer, 0);
+        plat_gpu_draw(4, mesh_glow_count);
     }
 }

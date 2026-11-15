@@ -2,6 +2,7 @@
 #include "demo/demo.h"
 
 i32 demo_free_camera;
+f32 demo_far = DEMO_FAR;
 
 // the demo files are included before this one (unity build), so their statics are visible here
 Demo demo_list[DEMO_COUNT] = {
@@ -18,6 +19,7 @@ Demo demo_list[DEMO_COUNT] = {
 };
 
 void demo_init(i32 demo) {
+    demo_far = DEMO_FAR; // a demo's init may draw further
     switch (demo) {
     case DEMO_HUNTER2: hunter2_init(); break;
     case DEMO_BALLS: balls_init(); break;
