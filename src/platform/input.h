@@ -21,6 +21,7 @@ enum {
     KEY_BRACKET_LEFT,
     KEY_BRACKET_RIGHT,
     KEY_R,
+    KEY_BACKSPACE,
 };
 
 // down = held right now. pressed = went down since the last frame (key repeat does not count)

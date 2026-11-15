@@ -99,6 +99,19 @@ f32 f32_tan(f32 x) {
     return f32_sin(x) / f32_cos(x);
 }
 
+// atan on -1..1 from a polynomial fit, the rest by symmetry: atan(z) = pi/2 - atan(1/z), and by quadrant
+f32 f32_atan2(f32 y, f32 x) {
+    f32 abs_x = x < 0 ? -x : x, abs_y = y < 0 ? -y : y;
+    if (abs_x == 0 && abs_y == 0) return 0;
+    i32 swapped = abs_y > abs_x;
+    f32 z = swapped ? abs_x / abs_y : abs_y / abs_x; // 0..1
+    f32 z2 = z * z;
+    f32 angle = z * (0.99997726f + z2 * (-0.33262347f + z2 * (0.19354346f + z2 * (-0.11643287f + z2 * (0.05265332f + z2 * -0.01172120f)))));
+    if (swapped) angle = F32_PI / 2 - angle;
+    if (x < 0) angle = F32_PI - angle;
+    return y < 0 ? -angle : angle;
+}
+
 Matrix4 matrix4_identity(void) {
     Matrix4 r = {{0}};
     r.m[0] = r.m[5] = r.m[10] = r.m[15] = 1;

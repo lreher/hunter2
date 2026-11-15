@@ -49,6 +49,7 @@ Vector3 vector3_lerp(Vector3 a, Vector3 b, real t);
 f32 f32_sin(f32 x);
 f32 f32_cos(f32 x);
 f32 f32_tan(f32 x);
+f32 f32_atan2(f32 y, f32 x); // angle of (x, y) from the x axis, -pi..pi. error under 1e-5
 
 // 4x4 matrix, column major (m[column * 4 + row]), the layout WGSL's mat4x4f expects
 typedef struct {

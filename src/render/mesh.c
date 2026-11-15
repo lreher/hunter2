@@ -314,6 +314,17 @@ static void render_mesh_begin(void) {
     mesh_line_count = 0;
 }
 
+i32 render_world_to_screen(Vector3 point, f32 *x, f32 *y) {
+    f32 *m = mesh_scene.view_proj;
+    f32 clip_x = m[0] * point.x + m[4] * point.y + m[8] * point.z + m[12];
+    f32 clip_y = m[1] * point.x + m[5] * point.y + m[9] * point.z + m[13];
+    f32 clip_w = m[3] * point.x + m[7] * point.y + m[11] * point.z + m[15];
+    if (clip_w <= 0.0001f) return 0; // behind the camera
+    *x = (clip_x / clip_w * 0.5f + 0.5f) * (f32)plat_screen_width();
+    *y = (0.5f - clip_y / clip_w * 0.5f) * (f32)plat_screen_height();
+    return 1;
+}
+
 void render_set_camera(Matrix4 view_projection, Vector3 eye) {
     for (i32 i = 0; i < 16; i++) mesh_scene.view_proj[i] = view_projection.m[i];
     Vector3 light = vector3_create(0.4f, 1.0f, 0.3f); // up, a bit right and front

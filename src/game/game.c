@@ -11,6 +11,8 @@
 #define GAME_MAX_STEPS 4 // per frame. if steps cost more than they cover, drop the rest: slow motion instead of a pile up
 
 // Free fly camera, only while the mouse is locked: mouse looks, WASD moves where you look, E/Q up/down, Shift faster.
+// Demos with their own camera (demo_view, own_camera) use theirs. Backspace switches to the free camera, starting
+// from where the demo's camera was, and back.
 #define CAMERA_SPEED 5.0f      // m/s
 #define CAMERA_FAST 4.0f       // speed multiplier with Shift
 #define CAMERA_TURN 0.0025f    // radians per pixel of mouse movement
@@ -26,6 +28,7 @@ typedef struct {
 static Camera game_camera; // set from the demo's start view
 static i32 game_demo;      // the one running, DEMO_*
 static i32 game_demo_picked; // the one asked for: demo bar clicks (JS writes it), [ and ], ?scene=
+static i32 game_free_camera_picked; // Backspace, only for demos with their own camera
 
 // time
 static f64 game_last_ms = -1;
@@ -47,6 +50,7 @@ static void game_start_demo(i32 demo) {
     plat_ui_clear();
     game_demo = demo;
     game_accumulator = 0;
+    game_free_camera_picked = 0;
     game_camera.position = demo_list[demo].camera_position;
     game_camera.yaw = demo_list[demo].camera_yaw;
     game_camera.pitch = demo_list[demo].camera_pitch;
@@ -74,7 +78,7 @@ static Vector3 game_camera_forward(void) {
 
 // the camera only moves while the mouse is locked (click the canvas), so the panel can be used without it drifting
 static void game_update_camera(f32 seconds) {
-    if (!plat_mouse_locked()) return;
+    if (!demo_free_camera || !plat_mouse_locked()) return;
 
     game_camera.yaw += plat_mouse_dx() * CAMERA_TURN;
     game_camera.pitch -= plat_mouse_dy() * CAMERA_TURN;
@@ -98,9 +102,19 @@ static void game_update_camera(f32 seconds) {
 // alpha: how far we are between the last step (0) and the next one (1)
 FORCE_INLINE void game_draw(f32 alpha, f32 seconds) {
     f32 aspect = (f32)plat_screen_width() / (f32)plat_screen_height();
-    Matrix4 projection = matrix4_perspective(CAMERA_FOV, aspect, 0.05f, 200.0f);
+    Matrix4 projection = matrix4_perspective(CAMERA_FOV, aspect, 0.05f, 400.0f);
+    DemoView demo_camera;
     Vector3 eye = game_camera.position;
     Matrix4 view = matrix4_look_at(eye, vector3_added(eye, game_camera_forward()), vector3_create(0, 1, 0));
+    if (!demo_free_camera && demo_view(game_demo, alpha, &demo_camera)) {
+        eye = demo_camera.eye;
+        view = matrix4_look_at(eye, demo_camera.target, demo_camera.up);
+        // so the free camera starts right here when the mouse locks
+        Vector3 forward = vector3_subtracted(demo_camera.target, eye);
+        game_camera.position = eye;
+        game_camera.yaw = f32_atan2(forward.x, -forward.z);
+        game_camera.pitch = f32_atan2(forward.y, real_sqrt(forward.x * forward.x + forward.z * forward.z));
+    }
 
     render_begin(0.02f, 0.02f, 0.04f);
     render_set_camera(matrix4_multiplied(projection, view), eye);
@@ -155,13 +169,15 @@ void game_frame(f64 now_ms) {
     if (plat_key_pressed(KEY_BRACKET_RIGHT)) game_demo_picked = (game_demo + 1) % DEMO_COUNT;
     if (game_demo_picked != game_demo && game_demo_picked >= 0 && game_demo_picked < DEMO_COUNT) game_start_demo(game_demo_picked);
 
-    demo_update(game_demo);
+    if (plat_key_pressed(KEY_BACKSPACE)) game_free_camera_picked = !game_free_camera_picked;
+    demo_free_camera = !demo_list[game_demo].own_camera || game_free_camera_picked;
 
     if (game_last_ms < 0) game_last_ms = now_ms;
     f64 frame_seconds = (now_ms - game_last_ms) / 1000.0;
     game_last_ms = now_ms;
     if (frame_seconds < 0) frame_seconds = 0;
     if (frame_seconds > GAME_MAX_FRAME_SECONDS) frame_seconds = GAME_MAX_FRAME_SECONDS;
+    demo_update(game_demo, (f32)frame_seconds);
 
     game_accumulator += frame_seconds;
     for (i32 steps = 0; game_accumulator >= GAME_STEP && steps < GAME_MAX_STEPS; steps++) {

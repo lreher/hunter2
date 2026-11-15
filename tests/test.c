@@ -668,6 +668,17 @@ static void test_trig(void) {
     CHECK(worst < 0.00001f);                 // sin^2 + cos^2 = 1 everywhere
 }
 
+static void test_atan2(void) {
+    for (i32 step = -16; step <= 16; step++) { // all the way round, angle back from its point on the circle
+        f32 angle = step * F32_PI / 16.5f;
+        CHECK(near(f32_atan2(f32_sin(angle), f32_cos(angle)), angle, 0.0001f));
+    }
+    NEAR(f32_atan2(1, 0), F32_PI / 2);
+    NEAR(f32_atan2(0, -1), F32_PI);
+    NEAR(f32_atan2(-3, -3), -3 * F32_PI / 4);
+    NEAR(f32_atan2(0, 0), 0);
+}
+
 static void test_quaternion(void) {
     Vector3 x_axis = vector3_create(1, 0, 0), y_axis = vector3_create(0, 1, 0);
     Vector3 same = quaternion_rotated_vector(quaternion_identity(), vector3_create(1, 2, 3));
@@ -816,6 +827,7 @@ __attribute__((export_name("run_tests"))) i32 run_tests(void) {
     test_trig();
     test_matrix4();
     test_quaternion();
+    test_atan2();
     test_str();
     return failures;
 }

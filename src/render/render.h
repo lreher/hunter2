@@ -15,6 +15,7 @@ void render_draw_text_centered(const char *s, f32 scale, f32 r, f32 g, f32 b);
 
 // 3D, world meters, y up. Drawn with depth, before the 2D quads, so 2D stays on top.
 void render_set_camera(Matrix4 view_projection, Vector3 eye); // call once per frame, after render_begin, before drawing
+i32 render_world_to_screen(Vector3 point, f32 *x, f32 *y); // screen pixels (y down) under this frame's camera. 0 = behind it
 void render_set_shadow_area(Vector3 min, Vector3 max);        // box that gets sun shadows. tighter = sharper shadows
 void render_draw_sphere(Vector3 center, f32 radius, f32 r, f32 g, f32 b);
 void render_draw_sphere_photo(Vector3 center, f32 radius, f32 r, f32 g, f32 b); // the photo faces the camera. color shows until it loads

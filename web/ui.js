@@ -12,11 +12,34 @@ export function createUi(ctx) {
     let pickedPtr = 0;   // C's i32 that a click writes the tab index into
     const text = (ptr, len) => decoder.decode(new Uint8Array(ctx.memory.buffer, ptr, len));
 
+    let group = null;    // the panel column that new sliders go into
+
+    // the panel is a row of groups (js_ui_group), each a column of label, control, value
     function makePanel() {
         panel = document.createElement("div");
         panel.style.cssText = "position:fixed;top:12px;right:12px;padding:10px 12px;background:rgba(10,12,20,0.8);" +
-            "color:#ccc;font:12px monospace;border-radius:6px;display:grid;grid-template-columns:auto 140px 48px;gap:6px 8px;align-items:center";
+            "color:#ccc;font:12px monospace;border-radius:6px;display:flex;gap:20px;align-items:flex-start";
         document.body.appendChild(panel);
+        group = null;
+    }
+
+    function makeGroup(name) {
+        if (!panel) makePanel();
+        group = document.createElement("div");
+        group.style.cssText = "display:grid;grid-template-columns:auto 140px 48px;gap:6px 8px;align-items:center";
+        if (name) {
+            const header = document.createElement("div");
+            header.textContent = name;
+            header.style.cssText = "grid-column:span 3;color:#fff;font-weight:bold";
+            group.appendChild(header);
+        }
+        panel.appendChild(group);
+    }
+
+    // where the next control goes: the current group, or a first one without a name
+    function target() {
+        if (!panel || !group) makeGroup("");
+        return group;
     }
 
     return {
@@ -25,6 +48,11 @@ export function createUi(ctx) {
             js_ui_clear() {
                 if (panel) panel.remove();
                 panel = null;
+                group = null;
+            },
+            // starts a new column in the panel, with name on top. later controls go into it
+            js_ui_group(namePtr, nameLen) {
+                makeGroup(text(namePtr, nameLen));
             },
             // tabs are divs, not buttons: a focused button would also react to Space, which respawns
             js_ui_demo(idPtr, idLen, chapterPtr, chapterLen, namePtr, nameLen) {
@@ -83,7 +111,6 @@ export function createUi(ctx) {
             // logarithmic (log = 1): equal slider distance multiplies the value by the same amount, min must be > 0
             // a button that picks an image file and puts it into a texture. stays in this browser tab, never uploaded
             js_ui_image(namePtr, nameLen, texture) {
-                if (!panel) makePanel();
                 const label = document.createElement("span");
                 label.textContent = decoder.decode(new Uint8Array(ctx.memory.buffer, namePtr, nameLen));
                 const input = document.createElement("input");
@@ -97,12 +124,11 @@ export function createUi(ctx) {
                         .then(() => console.log(`[js] image ${file.name} loaded into texture #${texture}`))
                         .catch((e) => console.error(`[js] image ${file.name} failed: ${e.message}`));
                 });
-                panel.append(label, input);
+                target().append(label, input);
             },
             // a row of options, the picked one green. a click writes its index into C's i32.
             // divs, not buttons, like the demo tabs: a focused button would also react to Space
             js_ui_choice(namePtr, nameLen, optionsPtr, optionsLen, valuePtr) {
-                if (!panel) makePanel();
                 const label = document.createElement("span");
                 label.textContent = text(namePtr, nameLen);
                 const row = document.createElement("div");
@@ -123,10 +149,9 @@ export function createUi(ctx) {
                     return option;
                 });
                 show(new Int32Array(ctx.memory.buffer, valuePtr, 1)[0]);
-                panel.append(label, row);
+                target().append(label, row);
             },
             js_ui_slider(namePtr, nameLen, min, max, step, log, valuePtr) {
-                if (!panel) makePanel();
                 const name = decoder.decode(new Uint8Array(ctx.memory.buffer, namePtr, nameLen));
                 const value = new Float32Array(ctx.memory.buffer, valuePtr, 1)[0];
                 const digits = step >= 1 ? 0 : 2;
@@ -152,7 +177,7 @@ export function createUi(ctx) {
                     shown.textContent = v.toFixed(digits);
                 });
                 input.addEventListener("keydown", (e) => e.stopPropagation()); // arrows move the slider, not the game
-                panel.append(label, input, shown);
+                target().append(label, input, shown);
             },
         },
     };
