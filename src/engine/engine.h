@@ -83,6 +83,10 @@ typedef struct {
     Vector3 color;           // 0..1
     i32 glow;                // 1 = drawn in its full color everywhere, no sun or shade (a bullet)
     f32 halo;                // m, glow on: a soft light in its color around it, gone at this distance. 0 = none
+    i32 pull_off;            // 0 = it pulls on everything (gravity), 1 = it does not pull, but is still pulled by what does
+    // model OBJECT_MODEL_BALL: its surface (patches or bands in three colors, air). color_one is color, copied over
+    // when drawn. each copy draws it with its own seed, so they all differ
+    RenderSurface surface;
     // copies_only: what a copy does when it hits something (panel block "on hit")
     i32 hit_burst;           // 0 = nothing, k = emitter type k - 1 fires once where the copy was, and the copy is gone
     f32 hit_steps;           // physics steps after the hit before that (its push reaches what it hit first). at least 1
@@ -203,10 +207,12 @@ typedef struct Placing {
     i32 object;                 // a copies_only object
     Vector3 center;             // m, world
     f32 count;                  // copies (a float: a panel slider)
-    f32 spread;                 // m, across the ball they are put in
     f32 size_min, size_max;     // m, across
     f32 speed_min, speed_max;   // m/s
-    f32 placed_with[6];         // count, spread, sizes, speeds when it last placed: a change places again
+    f32 mostly_small;           // 0 = sizes even between min and max, 1 = most near min, only a few big
+    f32 small_faster;           // 0 = every size picks from the whole speed range, 1 = the biggest stay at speed min
+    f32 placed_with[8];         // count, the universe's spread, sizes, speeds, mostly small, small faster when it last placed: a change
+                                // places again
 } Placing;
 
 // ---- The engine (engine/engine.c): all of a game's parts
@@ -220,6 +226,7 @@ typedef struct {
     struct Placing *placings;     i32 placing_count;
     f32 gravity;   // the universe's: every object and copy pulls on every other, real G times this. 0 = none
     f32 bounce;    // the universe's: share of the speed two things meet with that they part with, 0..1
+    f32 spread;    // the universe's: m across the ball every placing puts its copies in
     RenderStars stars; // the universe's: stars on the sky, look only. count 0 = none
     i32 inputs_on; // 0 = keys, aim and tilt read 0 (the free camera has the keys). actuators still ease down
     // the panel's (engine/panel.c)

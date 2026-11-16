@@ -462,6 +462,11 @@ void engine_add_panel(Engine *engine) {
     plat_ui_color("tint 2", engine->stars.tint_two);
     plat_ui_block_end();
     plat_ui_fold_end();
+    plat_ui_fold("spread", "every placing puts its copies in this ball");
+    plat_ui_block("spread");
+    plat_ui_slider("spread m", 100, 50000, 100, &engine->spread);
+    plat_ui_block_end();
+    plat_ui_fold_end();
     for (i32 i = 0; i < engine->placing_count; i++) {
         Placing *placing = &engine->placings[i];
         note[0] = 0; // "places: planet"
@@ -470,18 +475,17 @@ void engine_add_panel(Engine *engine) {
         plat_ui_fold(placing->name, note);
         plat_ui_fold_button("again", &engine->panel_action, PANEL_ACTION(PANEL_PLACE_AGAIN, i));
         plat_ui_block("count");
-        plat_ui_slider("count", 0, 500, 1, &placing->count); // every copy pulls on every other: cost grows with count^2
-        plat_ui_block_end();
-        plat_ui_block("spread");
-        plat_ui_slider("spread m", 100, 50000, 100, &placing->spread);
+        plat_ui_slider("count", 0, 5000, 1, &placing->count); // copies that pull: cost grows with their count x all
         plat_ui_block_end();
         plat_ui_block("size");
         plat_ui_slider("size min m", 1, 2000, 1, &placing->size_min);
         plat_ui_slider("size max m", 1, 2000, 1, &placing->size_max);
+        plat_ui_slider("mostly small", 0, 1, 0.05f, &placing->mostly_small);
         plat_ui_block_end();
         plat_ui_block("speed");
         plat_ui_slider("speed min m/s", 0, 500, 0.5f, &placing->speed_min);
         plat_ui_slider("speed max m/s", 0, 500, 0.5f, &placing->speed_max);
+        plat_ui_slider("small ones faster", 0, 1, 0.05f, &placing->small_faster);
         plat_ui_block_end();
         plat_ui_fold_end();
     }
@@ -501,6 +505,9 @@ void engine_add_panel(Engine *engine) {
             plat_ui_slider_log("mass kg", 0.01f, 100000, 0.01f, &object->mass); // log: a bullet and a ship both fit
             plat_ui_block_end();
         }
+        plat_ui_block("gravity");
+        plat_ui_choice("pulls", "yes|no", &object->pull_off); // no: still pulled by the ones that pull, pulls nothing
+        plat_ui_block_end();
         if (!placed) {
             plat_ui_block("drag");
             plat_ui_slider("drag /s", 0, 3, 0.01f, &object->drag);
@@ -515,9 +522,26 @@ void engine_add_panel(Engine *engine) {
         plat_ui_block("model");
         if (!placed) plat_ui_slider("size m", 0.01f, 10, 0.01f, &object->size); // placed: the placing picks sizes
         plat_ui_color("color", &object->color.x);
+        if (object->model == OBJECT_MODEL_BALL) { // its surface's other two colors. each copy mixes its own from the three
+            plat_ui_color("color 2", object->surface.color_two);
+            plat_ui_color("color 3", object->surface.color_three);
+            plat_ui_choice("colors", "these three|10 sets", &object->surface.color_sets); // sets: each copy picks one
+            plat_ui_slider("variation", 0, 1, 0.05f, &object->surface.variation);
+        }
         plat_ui_choice("glow", "Off|On", &object->glow);
         plat_ui_slider("halo m", 0, 10, 0.05f, &object->halo); // only drawn while glow is on
         plat_ui_block_end();
+        if (object->model == OBJECT_MODEL_BALL) {
+            plat_ui_block("surface");
+            plat_ui_choice("pattern", "patches|bands|both", &object->surface.pattern);
+            plat_ui_slider("detail", 0.5f, 20, 0.1f, &object->surface.detail);
+            plat_ui_slider("roughness", 0, 1, 0.05f, &object->surface.roughness);
+            plat_ui_block_end();
+            plat_ui_block("air");
+            plat_ui_color("air color", object->surface.air_color);
+            plat_ui_slider("thickness", 0, 2, 0.05f, &object->surface.air_thickness); // 0 = no rim
+            plat_ui_block_end();
+        }
         if (object->copies_only) { // a copy that hits something: a burst where it was, then gone
             options[0] = 0; // "nothing|main|side|...|explosion"
             str_append(options, sizeof options, "nothing");

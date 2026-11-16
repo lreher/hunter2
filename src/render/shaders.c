@@ -96,6 +96,8 @@ static const char render_shader_mesh[] =
     "@group(0) @binding(4) var shadow_sampler: sampler_comparison;\n"
     "@group(0) @binding(5) var photo: texture_2d<f32>;\n"
     "@group(0) @binding(6) var photo_sampler: sampler;\n"
+    "struct Surface { color_one: vec4f, color_two: vec4f, color_three: vec4f, air: vec4f, shape: vec4f, variety: vec4f };\n" // a MeshSurface
+    "@group(0) @binding(7) var<uniform> surfaces: array<Surface, 16>;\n"
     "\n"
     RENDER_SHADER_INSTANCE
     "\n"
@@ -104,7 +106,7 @@ static const char render_shader_mesh[] =
     "    @location(0) normal: vec3f,\n"
     "    @location(1) color: vec4f,\n"
     "    @location(2) world: vec3f,\n"
-    "    @location(3) center: vec4f,\n" // w = 1: show the photo
+    "    @location(3) center: vec4f,\n" // w = 1: show the photo, 2 and up: a surface (2 + slot + seed)
     "    @location(4) glow: f32,\n"       // 1 = full color, no shading
     "};\n"
     "\n"
@@ -160,6 +162,91 @@ static const char render_shader_mesh[] =
     "    return open;\n"
     "}\n"
     "\n"
+    // Surfaces (render_draw_sphere_surface). noise: smooth random 0..1 in 3D, the same at the same spot.
+    // layered: the noise added up at finer and finer sizes, roughness says how much the fine layers count
+    "fn noise_hash(p: vec3f) -> f32 {\n"
+    "    let q = fract(p * 0.3183099 + vec3f(0.71, 0.113, 0.419)) * 17.0;\n"
+    "    return fract(q.x * q.y * q.z * (q.x + q.y + q.z));\n"
+    "}\n"
+    "fn noise(p: vec3f) -> f32 {\n"
+    "    let cell = floor(p);\n"
+    "    let f = fract(p);\n"
+    "    let u = f * f * (3.0 - 2.0 * f);\n"
+    "    return mix(mix(mix(noise_hash(cell), noise_hash(cell + vec3f(1.0, 0.0, 0.0)), u.x),\n"
+    "                   mix(noise_hash(cell + vec3f(0.0, 1.0, 0.0)), noise_hash(cell + vec3f(1.0, 1.0, 0.0)), u.x), u.y),\n"
+    "               mix(mix(noise_hash(cell + vec3f(0.0, 0.0, 1.0)), noise_hash(cell + vec3f(1.0, 0.0, 1.0)), u.x),\n"
+    "                   mix(noise_hash(cell + vec3f(0.0, 1.0, 1.0)), noise_hash(cell + vec3f(1.0, 1.0, 1.0)), u.x), u.y), u.z);\n"
+    "}\n"
+    "fn layered(p: vec3f, roughness: f32) -> f32 {\n"
+    "    var sum = 0.0;\n"
+    "    var amount = 0.5;\n"
+    "    var total = 0.0;\n"
+    "    var spot = p;\n"
+    "    let keep = mix(0.3, 0.65, roughness);\n"
+    "    for (var layer = 0; layer < 5; layer++) {\n"
+    "        sum += amount * noise(spot);\n"
+    "        total += amount;\n"
+    "        amount *= keep;\n"
+    "        spot = spot * 2.03 + vec3f(5.1, 1.7, 3.3);\n"
+    "    }\n"
+    "    return sum / total;\n"
+    "}\n"
+    // d: unit, from the center to this spot. the seed moves the noise, picks the colors' order, lightness and the
+    // bands' tilt, so spheres with one surface all differ
+    // the color sets (shape.w = 1): three colors each, low ground or deep, middle, high or light
+    "const COLOR_SETS = array<vec3f, 30>(\n"
+    "    vec3f(0.12, 0.25, 0.50), vec3f(0.25, 0.45, 0.20), vec3f(0.80, 0.75, 0.60),\n" // sea, green land, sand
+    "    vec3f(0.60, 0.25, 0.12), vec3f(0.30, 0.15, 0.10), vec3f(0.85, 0.60, 0.40),\n" // rust, dark brown, pale orange
+    "    vec3f(0.70, 0.85, 0.95), vec3f(0.95, 0.97, 1.00), vec3f(0.30, 0.60, 0.70),\n" // ice
+    "    vec3f(0.85, 0.75, 0.55), vec3f(0.65, 0.45, 0.30), vec3f(0.95, 0.90, 0.80),\n" // cream and tan
+    "    vec3f(0.35, 0.20, 0.50), vec3f(0.60, 0.40, 0.70), vec3f(0.90, 0.75, 0.90),\n" // purples
+    "    vec3f(0.08, 0.06, 0.06), vec3f(0.70, 0.15, 0.05), vec3f(1.00, 0.55, 0.10),\n" // black rock, red, orange
+    "    vec3f(0.40, 0.55, 0.15), vec3f(0.70, 0.75, 0.20), vec3f(0.20, 0.30, 0.10),\n" // sickly greens
+    "    vec3f(0.05, 0.20, 0.40), vec3f(0.10, 0.45, 0.60), vec3f(0.60, 0.85, 0.90),\n" // ocean blues
+    "    vec3f(0.75, 0.60, 0.35), vec3f(0.55, 0.40, 0.25), vec3f(0.90, 0.82, 0.60),\n" // desert
+    "    vec3f(0.15, 0.30, 0.70), vec3f(0.35, 0.55, 0.90), vec3f(0.80, 0.90, 1.00),\n" // deep blue to pale
+    ");\n"
+    // turns a color around the color wheel by angle (radians): a rotation around the grey line
+    "fn turn_hue(color: vec3f, angle: f32) -> vec3f {\n"
+    "    let k = vec3f(0.57735);\n"
+    "    let c = cos(angle);\n"
+    "    return clamp(color * c + cross(k, color) * sin(angle) + k * dot(k, color) * (1.0 - c), vec3f(0.0), vec3f(1.0));\n"
+    "}\n"
+    "fn surface_color(s: Surface, d: vec3f, seed: f32) -> vec3f {\n"
+    "    let offset = vec3f(seed * 1371.3, seed * 713.7, seed * 297.1);\n"
+    "    var one = s.color_one.rgb; var two = s.color_two.rgb; var three = s.color_three.rgb;\n"
+    "    if (s.shape.w > 0.5) {\n"
+    "        let set_start = min(u32(fract(seed * 5.77) * 10.0), 9u) * 3u;\n"
+    "        one = COLOR_SETS[set_start]; two = COLOR_SETS[set_start + 1u]; three = COLOR_SETS[set_start + 2u];\n"
+    "    }\n"
+    "    let variation = s.variety.x;\n"
+    "    let angle = (fract(seed * 11.13) - 0.5) * 2.0 * variation * 1.2;\n" // up to about 70 degrees either way at 1
+    "    one = turn_hue(one, angle); two = turn_hue(two, angle); three = turn_hue(three, angle);\n"
+    "    let order = u32(fract(seed * 7.31) * 3.0);\n"
+    "    var a = one; var b = two; var c = three;\n"
+    "    if (order == 1u) { a = two; b = three; c = one; }\n"
+    "    if (order == 2u) { a = three; b = one; c = two; }\n"
+    "    let detail = s.shape.y;\n"
+    "    let roughness = s.shape.z;\n"
+    "    var bands = s.shape.x > 0.5;\n"
+    "    if (s.shape.x > 1.5) { bands = fract(seed * 3.71) > 0.5; }\n"
+    "    var color: vec3f;\n"
+    "    if (bands) {\n"
+    "        let axis = normalize(vec3f(sin(seed * 40.0) * 0.35, 1.0, cos(seed * 23.0) * 0.35));\n"
+    "        let warp = layered(d * detail * 0.7 + offset, roughness);\n"
+    "        let along = dot(d, axis) * detail * 1.5 + (warp - 0.5) * (1.0 + 4.0 * roughness);\n"
+    "        let stripe = 0.5 + 0.5 * sin(along * 3.14159);\n"
+    "        let spots = smoothstep(0.62, 0.8, layered(d * detail * 2.0 + offset.zxy, roughness));\n"
+    "        color = mix(mix(a, b, stripe), c, spots * 0.7);\n"
+    "    } else {\n"
+    "        let height = layered(d * detail + offset, roughness);\n"
+    "        color = mix(a, b, smoothstep(0.44, 0.5, height));\n"
+    "        color = mix(color, c, smoothstep(0.6, 0.7, height));\n"
+    "        color *= 0.85 + 0.3 * layered(d * detail * 5.0 + offset.yzx, roughness);\n" // finer shading inside each patch
+    "    }\n"
+    "    return color * (1.0 + (fract(seed * 13.7) - 0.5) * (0.3 + 0.5 * s.variety.x));\n"
+    "}\n"
+    "\n"
     "@fragment fn fs(i: VOut) -> @location(0) vec4f {\n"
     "    let n = normalize(i.normal);\n"
     "    let l = scene.light.xyz;\n"
@@ -170,7 +257,7 @@ static const char render_shader_mesh[] =
     "    var color = i.color.rgb;\n"
     // photo facing the camera: look at the ball from the camera, the photo's center is the ball's center.
     // the visible half maps to a disc on the photo (its inscribed circle). shading still uses the real normal
-    "    if (i.center.w > 0.5) {\n"
+    "    if (i.center.w > 0.5 && i.center.w < 1.5) {\n"
     "        let toward = normalize(scene.eye.xyz - i.center.xyz);\n"
     "        let side = normalize(cross(vec3f(0.0, 1.0, 0.0), toward));\n" // breaks only looking straight down
     "        let up = cross(toward, side);\n"
@@ -179,13 +266,26 @@ static const char render_shader_mesh[] =
     "        let texel = textureSampleLevel(photo, photo_sampler, uv, 0.0);\n"
     "        color = mix(color, texel.rgb, texel.a * step(0.0, dot(d, toward)));\n" // empty texture (alpha 0): plain color
     "    }\n"
+    "    var surface = Surface();\n"
+    "    let has_surface = i.center.w > 1.5;\n"
+    "    if (has_surface) {\n"
+    "        surface = surfaces[min(u32(i.center.w - 2.0), 15u)];\n"
+    "        color = surface_color(surface, normalize(p - i.center.xyz), fract(i.center.w));\n"
+    "    }\n"
     "    let albedo = pow(color, vec3f(2.2));\n"
     "    let diffuse = max(dot(n, l), 0.0) * sun;\n"
     "    let h = normalize(l + normalize(scene.eye.xyz - p));\n"
     "    let specular = pow(max(dot(n, h), 0.0), 32.0) * 0.12 * sun * step(0.0, dot(n, l));\n"
     "    let sky = mix(vec3f(0.06, 0.05, 0.05), vec3f(0.20, 0.23, 0.30), 0.5 + 0.5 * n.y);\n" // more from above than below
     "    let lit = albedo * (vec3f(1.0, 0.96, 0.9) * diffuse + sky * ambient) + vec3f(specular);\n"
-    "    return vec4f(mix(pow(lit, vec3f(1.0 / 2.2)), color, clamp(i.glow, 0.0, 1.0)), i.color.a);\n"
+    "    var shown = mix(pow(lit, vec3f(1.0 / 2.2)), color, clamp(i.glow, 0.0, 1.0));\n"
+    // air: a rim that glows toward the edge, brighter on the sunny side
+    "    if (has_surface && surface.air.w > 0.0) {\n"
+    "        let edge = pow(1.0 - max(dot(n, normalize(scene.eye.xyz - p)), 0.0), 3.0);\n"
+    "        let sunny = 0.2 + 0.8 * clamp(dot(n, l) + 0.3, 0.0, 1.0);\n"
+    "        shown += surface.air.rgb * edge * sunny * surface.air.w;\n"
+    "    }\n"
+    "    return vec4f(shown, i.color.a);\n"
     "}\n";
 
 // Shadow pass: the same instances seen from the sun, depth only (no fragment shader).

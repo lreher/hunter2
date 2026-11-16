@@ -65,7 +65,7 @@ static real engine_kept(real drag, real time_step) {
 
 // Everything that has a body in the world this step: objects in the world and used copies, in id order (objects by
 // place, then copies by place + object_count), so the contact list comes out sorted for the warm start
-#define ENGINE_MAX_BODIES 4096
+#define ENGINE_MAX_BODIES 8192
 #define ENGINE_MAX_CONTACTS 8192   // a planet touches a few others, plus the ones it could reach this step
 #define ENGINE_SOLVER_PASSES 4      // as Gravity Cloud
 typedef struct {
@@ -75,7 +75,15 @@ typedef struct {
     i32 object;  // a world object: its place. -1 = a copy
     i32 from;    // a copy: the object whose emitter sent it out (it never hits that one). -1 = none
     real reach;  // m it can move this step, for the contact margin
+    i32 pulls;   // 1 = it pulls on the others (gravity). every body is pulled by the ones that pull
 } EngineBody;
+// hits only check pairs whose spans along x overlap (sort and sweep): every body's span, sorted by its low end
+typedef struct {
+    real low, high; // m along x: its ball and what it can move this step
+    i32 body;
+} EngineSpan;
+static EngineSpan engine_spans[ENGINE_MAX_BODIES], engine_spans_sorting[ENGINE_MAX_BODIES];
+static i32 engine_pullers[ENGINE_MAX_BODIES]; // bodies that pull, in body order
 static EngineBody engine_bodies[ENGINE_MAX_BODIES];
 static i32 engine_body_count;
 static ParticleContact engine_contact_lists[2][ENGINE_MAX_CONTACTS]; // this step's and last step's, swapped
@@ -119,29 +127,36 @@ static void engine_gather_bodies(Engine *engine) {
         Object *object = &engine->objects[i];
         if (object->copies_only) continue;
         particle_set_mass(&object->particle, object->mass > 0 ? object->mass : 0.001f);
-        engine_bodies[count++] = (EngineBody){&object->particle, object->mass, object->radius, i, i, -1, 0};
+        engine_bodies[count++] = (EngineBody){&object->particle, object->mass, object->radius, i, i, -1, 0, !object->pull_off};
     }
     for (i32 i = 0; i < engine->copy_capacity && count < ENGINE_MAX_BODIES; i++) {
         ObjectCopy *copy = &engine->copies[i];
         if (!copy->used) continue;
         real mass = engine_copy_mass(&engine->objects[copy->object], copy);
         particle_set_mass(&copy->particle, mass);
-        engine_bodies[count++] = (EngineBody){&copy->particle, mass, copy->size / 2, engine->object_count + i, -1, copy->from, 0};
+        engine_bodies[count++] = (EngineBody){&copy->particle, mass, copy->size / 2, engine->object_count + i, -1, copy->from, 0,
+                                              !engine->objects[copy->object].pull_off};
     }
     engine_body_count = count;
 }
 
 // Newton's gravity (book 3.2, eq 3.3, as Gravity Cloud): force = G * mass a * mass b / distance^2, along the line
-// between them, on both. G = real G times the universe's gravity. Closer than their two radii (inside each other)
-// counts as touching, so the pull never blows up. All pairs: the cost grows with the count squared
+// between them. G = real G times the universe's gravity. Closer than their two radii (inside each other) counts as
+// touching, so the pull never blows up. Only bodies that pull pull: every puller with every body, a pair of two pullers
+// once with the force on both, a body that does not pull only gets pulled. The cost is pullers x bodies
 #define ENGINE_REAL_G 6.674e-11f // m^3 per kg per s^2
 static void engine_add_gravity(Engine *engine) {
     if (engine->gravity <= 0) return;
     real g = ENGINE_REAL_G * engine->gravity;
-    for (i32 a = 0; a < engine_body_count; a++) {
+    i32 puller_count = 0;
+    for (i32 i = 0; i < engine_body_count; i++)
+        if (engine_bodies[i].pulls) engine_pullers[puller_count++] = i;
+    for (i32 p = 0; p < puller_count; p++) {
+        i32 a = engine_pullers[p];
         EngineBody *first = &engine_bodies[a];
-        for (i32 b = a + 1; b < engine_body_count; b++) {
+        for (i32 b = 0; b < engine_body_count; b++) {
             EngineBody *second = &engine_bodies[b];
+            if (b == a || (second->pulls && b < a)) continue; // two pullers: done once, when the first one came up
             Vector3 between = vector3_subtracted(second->particle->position, first->particle->position);
             real distance_squared = vector3_square_magnitude(between);
             if (distance_squared <= 0) continue;
@@ -150,10 +165,55 @@ static void engine_add_gravity(Engine *engine) {
             if (distance_squared < touching * touching) distance_squared = touching * touching;
             real pull = g * first->mass * second->mass / distance_squared; // N
             Vector3 force = vector3_multiplied(between, pull / distance);
-            particle_add_force(first->particle, force);
+            if (second->pulls) particle_add_force(first->particle, force); // second pulls first back
             particle_add_force(second->particle, vector3_multiplied(force, -1));
         }
     }
+}
+
+// sorts count spans by their low end (merge sort, bottom up, through engine_spans_sorting)
+static void engine_sort_spans(i32 count) {
+    EngineSpan *from = engine_spans, *to = engine_spans_sorting;
+    for (i32 width = 1; width < count; width *= 2) {
+        for (i32 start = 0; start < count; start += 2 * width) {
+            i32 middle = start + width < count ? start + width : count;
+            i32 end = start + 2 * width < count ? start + 2 * width : count;
+            i32 left = start, right = middle, out = start;
+            while (left < middle && right < end) to[out++] = from[right].low < from[left].low ? from[right++] : from[left++];
+            while (left < middle) to[out++] = from[left++];
+            while (right < end) to[out++] = from[right++];
+        }
+        EngineSpan *swap = from;
+        from = to;
+        to = swap;
+    }
+    if (from != engine_spans)
+        for (i32 i = 0; i < count; i++) engine_spans[i] = from[i];
+}
+
+// sorts contacts by (id_a, id_b), the order the warm start reads them in (merge sort, bottom up, through scratch)
+static ParticleContact engine_contacts_sorting[ENGINE_MAX_CONTACTS];
+static i32 engine_contact_before(ParticleContact *first, ParticleContact *second) {
+    return first->id_a < second->id_a || (first->id_a == second->id_a && first->id_b < second->id_b);
+}
+static void engine_sort_contacts(ParticleContact *list, i32 count) {
+    ParticleContact *from = list, *to = engine_contacts_sorting;
+    for (i32 width = 1; width < count; width *= 2) {
+        for (i32 start = 0; start < count; start += 2 * width) {
+            i32 middle = start + width < count ? start + width : count;
+            i32 end = start + 2 * width < count ? start + 2 * width : count;
+            i32 left = start, right = middle, out = start;
+            while (left < middle && right < end)
+                to[out++] = engine_contact_before(&from[right], &from[left]) ? from[right++] : from[left++];
+            while (left < middle) to[out++] = from[left++];
+            while (right < end) to[out++] = from[right++];
+        }
+        ParticleContact *swap = from;
+        from = to;
+        to = swap;
+    }
+    if (from != list)
+        for (i32 i = 0; i < count; i++) list[i] = from[i];
 }
 
 // Hits (as Gravity Cloud): every pair of balls that could touch this step becomes a contact, the solver stops them
@@ -166,14 +226,22 @@ static void engine_move_with_hits(Engine *engine, real time_step) {
     i32 before = engine_contacts_now;
     engine_contacts_now ^= 1;
     ParticleContact *list = engine_contact_lists[engine_contacts_now];
+    i32 span_count = 0;
+    for (i32 i = 0; i < engine_body_count; i++) {
+        EngineBody *body = &engine_bodies[i];
+        if (body->radius <= 0) continue;
+        real x = body->particle->position.x, half = body->radius + body->reach;
+        engine_spans[span_count++] = (EngineSpan){x - half, x + half, i};
+    }
+    engine_sort_spans(span_count);
     i32 count = 0;
-    for (i32 a = 0; a < engine_body_count && count < ENGINE_MAX_CONTACTS; a++) {
-        EngineBody *first = &engine_bodies[a];
-        if (first->radius <= 0) continue;
-        for (i32 b = a + 1; b < engine_body_count && count < ENGINE_MAX_CONTACTS; b++) {
-            EngineBody *second = &engine_bodies[b];
-            if (second->radius <= 0) continue;
+    for (i32 s = 0; s < span_count && count < ENGINE_MAX_CONTACTS; s++) {
+        for (i32 t = s + 1; t < span_count && engine_spans[t].low <= engine_spans[s].high && count < ENGINE_MAX_CONTACTS; t++) {
+            i32 a = engine_spans[s].body, b = engine_spans[t].body;
+            if (b < a) { i32 swap = a; a = b; b = swap; } // a first: bodies are in id order, so id_a < id_b
+            EngineBody *first = &engine_bodies[a], *second = &engine_bodies[b];
             if (first->object >= 0 && second->from == first->object) continue;
+            if (second->object >= 0 && first->from == second->object) continue;
             if (particle_contact_find_spheres(&list[count], first->particle, first->radius, second->particle, second->radius,
                                               engine->bounce, time_step, first->reach + second->reach)) {
                 list[count].id_a = first->id;
@@ -182,6 +250,7 @@ static void engine_move_with_hits(Engine *engine, real time_step) {
             }
         }
     }
+    engine_sort_contacts(list, count);
     engine_contact_counts[engine_contacts_now] = count;
     particle_contacts_warm(list, count, engine_contact_lists[before], engine_contact_counts[before]);
     for (i32 i = 0; i < count; i++)
@@ -260,9 +329,13 @@ FORCE_INLINE void engine_step(Engine *engine, real time_step) {
 }
 
 // an object or one of its copies at position, size across: its built model (with glow and halo) or the renderer's ball
-static void engine_draw_model(Object *object, Vector3 position, Quaternion rotation, real size) {
+// seed: 0..1, a copy's own (its surface's pattern)
+static void engine_draw_model(Object *object, Vector3 position, Quaternion rotation, real size, f32 seed) {
     if (object->model == OBJECT_MODEL_BALL) {
-        render_draw_sphere(position, size / 2, object->color.x, object->color.y, object->color.z);
+        object->surface.color_one[0] = object->color.x;
+        object->surface.color_one[1] = object->color.y;
+        object->surface.color_one[2] = object->color.z;
+        render_draw_sphere_surface(position, size / 2, &object->surface, seed);
         return;
     }
     if (object->model < 0) return;
@@ -276,14 +349,15 @@ void engine_draw(Engine *engine, f32 alpha) {
     for (i32 i = 0; i < engine->object_count; i++) {
         Object *object = &engine->objects[i];
         if (object->copies_only) continue;
-        engine_draw_model(object, object_drawn_position(object, alpha), object_drawn_rotation(object, alpha), object->size);
+        engine_draw_model(object, object_drawn_position(object, alpha), object_drawn_rotation(object, alpha), object->size, 0);
     }
     for (i32 i = 0; i < engine->copy_capacity; i++) {
         ObjectCopy *copy = &engine->copies[i];
         if (!copy->used) continue;
         Object *object = &engine->objects[copy->object];
         Vector3 position = vector3_lerp(copy->previous_position, copy->particle.position, alpha);
-        engine_draw_model(object, position, copy->rotation, copy->size);
+        f32 seed = (f32)i * 0.618034f; // its place: the same copy keeps its look
+        engine_draw_model(object, position, copy->rotation, copy->size, seed - (f32)(i32)seed);
     }
     for (i32 i = 0; i < engine->emitter_count; i++) {
         Emitter *emitter = &engine->emitters[i];

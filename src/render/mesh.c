@@ -33,6 +33,19 @@ typedef struct {
     f32 r, g, b, a;
 } MeshGlow;
 #define MESH_MAX_GLOWS 1024
+
+// surfaces of this frame's spheres (render_draw_sphere_surface). Layout must match Surface in shaders.c (96 bytes)
+#define MESH_MAX_SURFACES 16
+typedef struct {
+    f32 color_one[4], color_two[4], color_three[4];
+    f32 air[4];   // color, w = thickness
+    f32 shape[4]; // pattern, detail, roughness, color sets
+    f32 mix[4];   // variation, unused, unused, unused
+} MeshSurface;
+static MeshSurface mesh_surfaces[MESH_MAX_SURFACES];
+static const RenderSurface *mesh_surface_sources[MESH_MAX_SURFACES]; // which surface each slot holds this frame
+static i32 mesh_surface_count;
+static GpuHandle mesh_surface_buffer;
 static MeshGlow mesh_glows[MESH_MAX_GLOWS];
 static i32 mesh_glow_count;
 static GpuHandle mesh_glow_buffer, mesh_glow_pipeline, mesh_glow_bind_group;
@@ -256,6 +269,7 @@ static void render_mesh_init(void) {
     mesh_line_buffer = plat_gpu_create_buffer(sizeof(mesh_lines), GPU_BUFFER_VERTEX | GPU_BUFFER_COPY_DST);
     mesh_grid_buffer = plat_gpu_create_buffer(sizeof(mesh_grid), GPU_BUFFER_STORAGE | GPU_BUFFER_COPY_DST);
     mesh_scene_buffer = plat_gpu_create_buffer(sizeof(MeshScene), GPU_BUFFER_UNIFORM | GPU_BUFFER_COPY_DST);
+    mesh_surface_buffer = plat_gpu_create_buffer(sizeof(mesh_surfaces), GPU_BUFFER_UNIFORM | GPU_BUFFER_COPY_DST);
     mesh_shadow_map = plat_gpu_create_texture(MESH_SHADOW_SIZE, MESH_SHADOW_SIZE, GPU_FORMAT_DEPTH,
                                               GPU_TEXTURE_RENDER_ATTACHMENT | GPU_TEXTURE_BINDING);
 
@@ -282,7 +296,7 @@ static void render_mesh_init(void) {
                                          GPU_TEXTURE_BINDING | GPU_TEXTURE_COPY_DST | GPU_TEXTURE_RENDER_ATTACHMENT);
     GpuBindGroupDesc bind_group = {0};
     bind_group.pipeline = mesh_pipeline;
-    bind_group.entry_count = 7;
+    bind_group.entry_count = 8;
     bind_group.entries[0] = (GpuBindEntry){0, GPU_BIND_UNIFORM, mesh_scene_buffer};
     bind_group.entries[1] = (GpuBindEntry){1, GPU_BIND_STORAGE, mesh_sphere_buffer};
     bind_group.entries[2] = (GpuBindEntry){2, GPU_BIND_STORAGE, mesh_grid_buffer};
@@ -290,6 +304,7 @@ static void render_mesh_init(void) {
     bind_group.entries[4] = (GpuBindEntry){4, GPU_BIND_SAMPLER, plat_gpu_create_sampler(GPU_FILTER_SHADOW)};
     bind_group.entries[5] = (GpuBindEntry){5, GPU_BIND_TEXTURE, mesh_photo};
     bind_group.entries[6] = (GpuBindEntry){6, GPU_BIND_SAMPLER, plat_gpu_create_sampler(GPU_FILTER_LINEAR)};
+    bind_group.entries[7] = (GpuBindEntry){7, GPU_BIND_UNIFORM, mesh_surface_buffer};
     mesh_bind_group = plat_gpu_create_bind_group(&bind_group);
 
     // same instances and attributes, seen from the sun, depth only
@@ -339,6 +354,7 @@ static void render_mesh_begin(void) {
     mesh_model_instance_total = 0;
     mesh_line_count = 0;
     mesh_glow_count = 0;
+    mesh_surface_count = 0;
 }
 
 i32 render_world_to_screen(Vector3 point, f32 *x, f32 *y) {
@@ -409,6 +425,38 @@ static void mesh_add_sphere(Vector3 center, f32 radius, f32 r, f32 g, f32 b, f32
 
 void render_draw_sphere(Vector3 center, f32 radius, f32 r, f32 g, f32 b) {
     mesh_add_sphere(center, radius, r, g, b, 0);
+}
+
+// instance.photo tells the shader: 0 plain, 1 photo, 2 + slot + seed a surface (the slot's whole part, the seed's
+// fraction: up to 18, an f32 still keeps the seed to about 1 / 1000000)
+void render_draw_sphere_surface(Vector3 center, f32 radius, const RenderSurface *surface, f32 seed) {
+    i32 slot = 0;
+    while (slot < mesh_surface_count && mesh_surface_sources[slot] != surface) slot++;
+    if (slot == mesh_surface_count) {
+        if (slot >= MESH_MAX_SURFACES) {
+            mesh_add_sphere(center, radius, surface->color_one[0], surface->color_one[1], surface->color_one[2], 0);
+            return;
+        }
+        mesh_surface_sources[slot] = surface;
+        MeshSurface *gpu = &mesh_surfaces[slot];
+        for (i32 i = 0; i < 3; i++) {
+            gpu->color_one[i] = surface->color_one[i];
+            gpu->color_two[i] = surface->color_two[i];
+            gpu->color_three[i] = surface->color_three[i];
+            gpu->air[i] = surface->air_color[i];
+        }
+        gpu->air[3] = surface->air_thickness;
+        gpu->shape[0] = (f32)surface->pattern;
+        gpu->shape[1] = surface->detail;
+        gpu->shape[2] = surface->roughness;
+        gpu->shape[3] = (f32)surface->color_sets;
+        gpu->mix[0] = surface->variation;
+        mesh_surface_count++;
+    }
+    seed -= (f32)(i32)seed; // its fraction, 0..1
+    if (seed < 0) seed += 1;
+    mesh_add_sphere(center, radius, surface->color_one[0], surface->color_one[1], surface->color_one[2],
+                    2 + (f32)slot + seed * 0.999f);
 }
 
 void render_draw_sphere_photo(Vector3 center, f32 radius, f32 r, f32 g, f32 b) {
@@ -626,6 +674,8 @@ static void render_mesh_shadow_pass(void) {
     mesh_build_contact_grid();
     mesh_fit_shadow();
     plat_gpu_write_buffer(mesh_scene_buffer, 0, &mesh_scene, sizeof(mesh_scene));
+    if (mesh_surface_count > 0)
+        plat_gpu_write_buffer(mesh_surface_buffer, 0, mesh_surfaces, mesh_surface_count * (i32)sizeof(MeshSurface));
     if (mesh_sphere_count > 0) {
         plat_gpu_write_buffer(mesh_sphere_buffer, 0, mesh_sphere_sorted, mesh_sphere_count * (i32)sizeof(MeshInstance));
     }

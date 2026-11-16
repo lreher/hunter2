@@ -20,6 +20,21 @@ void render_set_shadow_area(Vector3 min, Vector3 max);        // box that gets s
 void render_draw_sphere(Vector3 center, f32 radius, f32 r, f32 g, f32 b);
 void render_draw_sphere_photo(Vector3 center, f32 radius, f32 r, f32 g, f32 b); // the photo faces the camera. color shows until it loads
 void render_add_photo_picker(const char *name); // panel button: the user picks one photo for all spheres. call after render_init
+// A sphere with a surface: patches (land and sea) or bands (stripes), from noise, in three colors, with a glowing rim
+// (air). seed 0..1: each seed gives its own pattern, its own order of the colors and a little lighter or darker, so
+// spheres with one surface still all differ. f32 / i32 fields so panel controls can point at them.
+// Up to 16 surfaces a frame (told apart by the pointer), past that the sphere is drawn plain in color_one
+typedef struct {
+    f32 color_one[3], color_two[3], color_three[3];
+    i32 pattern;         // 0 = patches, 1 = bands, 2 = both (each sphere picks one by its seed)
+    f32 detail;          // how many patches or bands around it
+    f32 roughness;       // 0 = smooth, round shapes, 1 = ragged edges and fine detail
+    f32 air_color[3];
+    f32 air_thickness;   // how strong the rim glows, 0 = none
+    i32 color_sets;      // 0 = its three colors, 1 = each sphere picks one of the renderer's 10 color sets by its seed
+    f32 variation;       // 0..1: how far each sphere turns its colors around the color wheel and goes lighter or darker
+} RenderSurface;
+void render_draw_sphere_surface(Vector3 center, f32 radius, const RenderSurface *surface, f32 seed);
 void render_draw_box(Vector3 center, Vector3 half_size, f32 r, f32 g, f32 b); // axis aligned for now, rotation comes with rigid bodies
 // Models: a shape made in code, one triangle = 3 corners in a row. Flat shaded, one color per draw.
 // Each face is turned to point away from the shape's center, so corner order does not matter, but the shape must be

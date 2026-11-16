@@ -19,6 +19,8 @@ The game is being restructured onto an engine of parts (objects, actuators, emit
 
 - Session 5 (2026-11-15): roll "when idle" nothing | level (starts on nothing), up/down thrusters on top and under the middle of the wings, planets drawn as smooth spheres, bullets explode on hit (focus/engine.md "Explosions on hit"), loading screen, the user's save as code defaults. "Erasmos Balls" is now "Ball Pit".
 
+- Session 6 (2026-11-15): stars on the sky; explosions aimed between ricochet and straight out of the surface, denser in the middle, faster for harder hits; planets with surfaces (patches / bands, 10 color sets, air rim); asteroids (5000 by default, many small fast ones) as a second placing; one spread for the whole universe (15 km); asteroids and bullets pulled but do not pull. focus/engine.md has the details.
+
 ## Decisions
 - Game is 3D (user).
 - First feature: a controllable spaceship. Feel is the user's job; the code gives a clear tuning interface (user).
