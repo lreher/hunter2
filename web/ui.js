@@ -504,7 +504,7 @@ export function createUi(ctx) {
                 if (!lines.length) return;
                 guide = document.createElement("div");
                 guide.style.cssText = OVERLAY_STYLE + ";top:24px;right:12px;display:grid;grid-template-columns:auto auto;" +
-                    "column-gap:0.5em;font-size:16px;line-height:24px";
+                    "column-gap:0.5em;font-size:13px;line-height:20px";
                 const add = (key, action, keyColor, actionColor) => {
                     for (const [content, color] of [[`${key}:`, keyColor], [action, actionColor]]) {
                         const cell = document.createElement("div");
@@ -531,7 +531,7 @@ export function createUi(ctx) {
                 if (!hint) {
                     hint = document.createElement("div");
                     hint.style.cssText = OVERLAY_STYLE + ";left:50%;top:50%;transform:translate(-50%,-50%);" +
-                        "font-size:24px;color:#999ab3";
+                        "font-size:20px;color:#999ab3";
                     document.body.appendChild(hint);
                 }
                 hint.textContent = content;
