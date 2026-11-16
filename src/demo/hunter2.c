@@ -348,13 +348,25 @@ static void hunter2_draw_marks(f32 alpha) {
     if (HUNTER2_SHOW_AIM && render_world_to_screen(aim, &x, &y)) render_draw_circle(x, y, 4, 1, 0.75f, 0.3f, 0.95f);
 }
 
-// a hint while the mouse is free
-static void hunter2_draw_hint(void) {
-    if (demo_free_camera || plat_mouse_locked()) return;
-    const char *hint = "click to fly with the mouse";
-    f32 scale = 2; // glyphs are 8 px
-    f32 x = (f32)plat_screen_width() / 2 - str_len(hint) * 4 * scale, y = (f32)plat_screen_height() * 0.75f;
-    render_draw_text(hint, x, y, scale, 0.6f, 0.6f, 0.7f);
+// "click to fly" in the middle of the screen while the mouse is free (the page hides it while flying). not with the
+// free camera. only told to the page when that changes
+static i32 hunter2_hint_shown = -1; // what the page has now: 1 the hint, 0 none, -1 nothing yet (a new start)
+static void hunter2_update_hint(void) {
+    i32 show = !demo_free_camera;
+    if (show == hunter2_hint_shown) return;
+    hunter2_hint_shown = show;
+    plat_ui_hint(show ? "click to fly with the mouse" : "");
+}
+
+// the controls guide in the top right corner, key|action per line. the page adds "ESC: dev menu" (its panel) at the end
+static void hunter2_show_controls(void) {
+    plat_ui_controls(
+        "WASD|directional thrusters\n"
+        "SHFT/CTRL|up/down thrusters\n"
+        "Q/E|roll\n"
+        "SPACE|boost\n"
+        "LCLICK|shoot\n"
+        "RCLICK|drift");
 }
 
 // ---- The demo
@@ -379,6 +391,8 @@ static void hunter2_init(void) {
     hunter2_camera.rotation = hunter2_camera.previous_rotation = hunter2_ship->rotation;
     hunter2_camera.distance = hunter2_camera.previous_distance = hunter2_camera_tuning.distance;
     hunter2_add_panel();
+    hunter2_show_controls();
+    hunter2_hint_shown = -1;
 }
 
 // once per browser frame: the mouse moves the ship's aim
@@ -418,20 +432,22 @@ FORCE_INLINE void hunter2_draw(f32 alpha, f32 seconds, f32 hud_top) {
     render_set_shadow_area(vector3_subtracted(position, around), vector3_added(position, around));
     if (hunter2_grid) hunter2_draw_grid(position);
     engine_draw(&hunter2_engine, alpha);
-    hunter2_draw_hint();
+    hunter2_update_hint();
     hunter2_draw_marks(alpha);
 
     char line[128];
     line[0] = 0;
     str_append(line, sizeof(line), "speed m/s: ");
     str_append_i32(line, sizeof(line), (i32)(vector3_magnitude(hunter2_ship->particle.velocity) + 0.5f));
-    if (!demo_free_camera && plat_key_down(KEY_MOUSE_RIGHT)) str_append(line, sizeof(line), "  drift");
-    else if (!demo_free_camera && plat_key_down(KEY_SPACE) && plat_key_down(KEY_W)) str_append(line, sizeof(line), "  boost");
     str_append(line, sizeof(line), "  thrust N ");
     str_append_i32(line, sizeof(line), (i32)(hunter2_actuators[HUNTER2_ENGINE].now - hunter2_actuators[HUNTER2_REVERSE].now));
     str_append(line, sizeof(line), "  particles ~");
     str_append_i32(line, sizeof(line), render_particle_estimate());
     render_draw_text(line, 16, hud_top, 2, 0.8f, 0.8f, 0.8f);
+
+    // under it: drift in a light ice blue, boost in a light flame orange
+    if (!demo_free_camera && plat_key_down(KEY_MOUSE_RIGHT)) render_draw_text("drift", 16, hud_top + 24, 2, 0.6f, 0.85f, 1);
+    else if (!demo_free_camera && plat_key_down(KEY_SPACE) && plat_key_down(KEY_W)) render_draw_text("boost", 16, hud_top + 24, 2, 1, 0.75f, 0.45f);
 }
 
 static void hunter2_stats(char *line, i32 cap) {

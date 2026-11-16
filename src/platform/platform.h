@@ -24,6 +24,8 @@ IMPORT("js_mouse_dy") f64 js_mouse_dy(void);
 // web/ui.js
 IMPORT("js_ui_title") void js_ui_title(const char *s, i32 len, u32 color);
 IMPORT("js_ui_title_bottom") i32 js_ui_title_bottom(void);
+IMPORT("js_ui_controls") void js_ui_controls(const char *s, i32 len);
+IMPORT("js_ui_hint") void js_ui_hint(const char *s, i32 len);
 IMPORT("js_ui_image") void js_ui_image(const char *name, i32 len, GpuHandle texture);
 IMPORT("js_ui_slider") void js_ui_slider(const char *name, i32 len, f32 min, f32 max, f32 step, i32 log, f32 *value);
 IMPORT("js_ui_choice") void js_ui_choice(const char *name, i32 len, const char *options, i32 options_len, i32 *value);
@@ -104,6 +106,9 @@ void plat_ui_text(const char *name, char *text, i32 capacity, i32 *changed);
 void plat_ui_clear(void);            // removes every slider and picker, e.g. before another demo adds its own
 void plat_ui_title(const char *s, u32 color); // big title in the top left corner. color 0xRRGGBB
 i32 plat_ui_title_bottom(void);      // where the title ends, in screen pixels from the top. draw below it
+void plat_ui_controls(const char *lines); // controls guide in the top right corner, monospace font. "key|action" lines
+                                         // split by \n, the page adds "esc: dev menu". hidden while the panel is open. "" = none
+void plat_ui_hint(const char *s);         // a line in the middle of the screen while the mouse is free. "" = none
 
 // demo bar along the bottom, one tab per demo
 void plat_ui_demo(const char *id, const char *chapter, const char *name); // adds a tab. id is what ?scene= in the URL matches

@@ -113,3 +113,11 @@ void plat_ui_title(const char *s, u32 color) {
 i32 plat_ui_title_bottom(void) {
     return js_ui_title_bottom();
 }
+
+void plat_ui_controls(const char *lines) {
+    js_ui_controls(lines, str_len(lines));
+}
+
+void plat_ui_hint(const char *s) {
+    js_ui_hint(s, str_len(s));
+}

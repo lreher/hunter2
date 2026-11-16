@@ -42,12 +42,13 @@ static f64 game_stats_cpu_ms;
 
 // last second's stats, for the on screen text
 static i32 game_hud_fps;
-static i32 game_hud_cpu_us; // cpu per frame
-static i32 game_hud_steps;  // steps per second, under 60 means the physics runs in slow motion
+static i32 game_hud_cpu_percent; // share of the last second spent in game_frame (our code: physics, building the draws)
 
 // also for switching: the old demo's sliders go, the new one starts fresh from its start view
 static void game_start_demo(i32 demo) {
     plat_ui_clear();
+    plat_ui_controls("");
+    plat_ui_hint("");
     game_demo = demo;
     game_accumulator = 0;
     game_free_camera_picked = 0;
@@ -124,10 +125,9 @@ FORCE_INLINE void game_draw(f32 alpha, f32 seconds) {
     line[0] = 0;
     str_append(line, sizeof(line), "fps ");
     str_append_i32(line, sizeof(line), game_hud_fps);
-    str_append(line, sizeof(line), "  cpu us ");
-    str_append_i32(line, sizeof(line), game_hud_cpu_us);
-    str_append(line, sizeof(line), "  steps ");
-    str_append_i32(line, sizeof(line), game_hud_steps);
+    str_append(line, sizeof(line), "  cpu ");
+    str_append_i32(line, sizeof(line), game_hud_cpu_percent);
+    str_append(line, sizeof(line), "%");
     render_draw_text(line, 16, top, 2, 0.8f, 0.8f, 0.8f);
 
     demo_draw(game_demo, alpha, seconds, top + 24);
@@ -154,8 +154,7 @@ static void game_update_stats(f64 now_ms, f64 cpu_ms) {
     plat_log(line);
 
     game_hud_fps = game_stats_frames;
-    game_hud_cpu_us = (i32)(game_stats_cpu_ms * 1000.0 / game_stats_frames);
-    game_hud_steps = game_stats_steps;
+    game_hud_cpu_percent = (i32)(game_stats_cpu_ms * 100.0 / (now_ms - game_stats_start_ms) + 0.5);
     game_stats_start_ms = now_ms;
     game_stats_frames = 0;
     game_stats_steps = 0;

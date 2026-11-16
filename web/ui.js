@@ -33,7 +33,10 @@ export function createUi(ctx) {
     function saveAll() {
         const values = {};
         for (const control of controls) values[control.key] = control.value();
-        try { localStorage.setItem(storageKey(), JSON.stringify(values)); } catch { }
+        try {
+            localStorage.setItem(storageKey(), JSON.stringify(values));
+            console.log(`[js] settings: saved ${Object.keys(values).length} values for ${demoId} at ${location.origin}`);
+        } catch (e) { console.warn(`[js] settings: not saved, storage failed: ${e}`); }
     }
     function savedValue(saved, control) {
         const type = control.text ? "string" : "number";
@@ -44,6 +47,7 @@ export function createUi(ctx) {
     // controls missing from the save (added or renamed since) keep their value. a loaded parts list makes C build
     // the panel again: everything in it gets its saved value again then (seen is emptied)
     function loadAll() {
+        resetting = false;
         const saved = loadSaved();
         for (const control of controls) {
             const value = savedValue(saved, control);
@@ -51,30 +55,95 @@ export function createUi(ctx) {
         }
         seen = new Set();
     }
-    // a control picks up its saved value the first time its key shows up for this demo (not when C builds the panel
-    // again after a click: then the value C has now stays)
+
+    // Defaults: the code's values, per demo, {key: value}. A control's value the first time its key shows up in this
+    // page, before any save is put on it. Reset puts them all back, the parts list too (its types and who uses which).
+    // The save stays as it was: load brings it back, save keeps the defaults. resetting: until load or another demo,
+    // controls that show up when C builds the panel again take their default instead of the save
+    const defaultsByDemo = {};
+    const demoDefaults = () => (defaultsByDemo[demoId] ??= {});
+    let resetting = false;
+    function resetAll() {
+        resetting = true;
+        const defaults = demoDefaults();
+        for (const control of controls) {
+            const value = defaults[control.key];
+            if (value !== undefined && value !== control.value()) control.set(value);
+        }
+        seen = new Set();
+    }
+
+    // a control picks up its saved value (or its default after reset) the first time its key shows up for this demo
+    // (not when C builds the panel again after a click: then the value C has now stays)
     function addControl(name, value, set, isText = false) {
         const foldName = folds.length ? folds[folds.length - 1].name : "";
         const control = { key: foldName ? `${foldName}/${name}` : name, name, text: isText, value, set };
         controls.push(control);
+        const defaults = demoDefaults();
+        if (!(control.key in defaults)) defaults[control.key] = value();
         if (seen.has(control.key)) return;
         seen.add(control.key);
+        if (resetting) {
+            if (defaults[control.key] !== value()) set(defaults[control.key]);
+            return;
+        }
         const saved = savedValue(loadSaved(), control);
         if (saved !== undefined && !(isText && saved === value())) set(saved);
     }
 
-    // The panel: a tree of folds along the right edge, above the demo bar, save and load at the bottom. Hidden while
-    // the mouse is locked (flying), so it shows when Esc lets the mouse go
-    const showPanel = () => { if (panel) panel.style.display = document.pointerLockElement ? "none" : "flex"; };
-    document.addEventListener?.("pointerlockchange", showPanel);
+    // The panel: a tree of folds along the right edge, above the demo bar, save, load and reset at the bottom. Hidden on load,
+    // so the page opens on the game. Shows when Esc lets the mouse go, hides again while the mouse is locked (flying).
+    // panelOpen outlives the panel itself: switching demos makes a new one, it stays open
+    let panelOpen = false;
+    const showPanel = () => { if (panel) panel.style.display = panelOpen ? "flex" : "none"; };
+    document.addEventListener?.("pointerlockchange", () => { panelOpen = !document.pointerLockElement; showPanel(); showOverlays(); });
+
+    // Page text over the game, in the browser's monospace font (what the loading screen shows until Tiny5 arrives, the
+    // user liked it), clicks go through to the canvas: the controls guide in the top right corner (hidden while the
+    // panel is open, it would cover it) and a hint in the middle (hidden while flying)
+    let guide = null;
+    let hint = null;
+    const OVERLAY_STYLE = "position:fixed;font-family:monospace;pointer-events:none;user-select:none;white-space:pre";
+    const showOverlays = () => {
+        if (guide) guide.style.display = panelOpen ? "none" : "grid";
+        if (hint) hint.style.display = document.pointerLockElement ? "none" : "block";
+    };
+
+    // Panel width: drag its left edge. Remembered for all demos in localStorage (hunter2.panel.width, CSS pixels)
+    const widthKey = "hunter2.panel.width";
+    const PANEL_MIN_WIDTH = 280;
+    const clampWidth = (width) => Math.max(PANEL_MIN_WIDTH, Math.min(width, innerWidth - 32));
+    let panelWidth = 600;
+    try { panelWidth = Number(localStorage.getItem(widthKey)) || 600; } catch { }
+    function addWidthHandle() {
+        const handle = document.createElement("div");
+        handle.style.cssText = "position:absolute;left:-4px;top:0;bottom:0;width:8px;cursor:ew-resize";
+        handle.addEventListener("pointerdown", (e) => {
+            e.preventDefault(); // no text selection while dragging
+            handle.setPointerCapture(e.pointerId); // keeps the moves coming when the mouse leaves the thin handle
+            const move = (m) => {
+                panelWidth = clampWidth(innerWidth - m.clientX);
+                if (panel) panel.style.width = `${panelWidth}px`;
+            };
+            const up = () => {
+                handle.removeEventListener("pointermove", move);
+                handle.removeEventListener("pointerup", up);
+                try { localStorage.setItem(widthKey, String(panelWidth)); } catch { }
+            };
+            handle.addEventListener("pointermove", move);
+            handle.addEventListener("pointerup", up);
+        });
+        panel.appendChild(handle);
+    }
     function makePanel() {
         panel = document.createElement("div");
-        panel.style.cssText = "position:fixed;top:0;right:0;bottom:40px;width:600px;max-width:calc(100vw - 32px);" +
+        panel.style.cssText = `position:fixed;top:0;right:0;bottom:40px;width:${panelWidth}px;max-width:calc(100vw - 32px);` +
             "display:flex;flex-direction:column;background:rgba(10,12,20,0.88);color:#ccc;font:12px monospace;" +
             "border-left:1px solid rgba(255,255,255,0.08)";
         tree = document.createElement("div");
         tree.style.cssText = "flex:1;overflow-y:auto;padding:8px 10px";
         panel.appendChild(tree);
+        addWidthHandle();
         document.body.appendChild(panel);
         showPanel();
         const scroll = keepScroll; // after C has added everything, this frame
@@ -82,7 +151,7 @@ export function createUi(ctx) {
 
         const buttons = document.createElement("div");
         buttons.style.cssText = "display:flex;gap:6px;padding:8px 10px;border-top:1px solid rgba(255,255,255,0.08)";
-        for (const [label, action] of [["save", saveAll], ["load", loadAll]]) {
+        for (const [label, action] of [["save", saveAll], ["load", loadAll], ["reset", resetAll]]) {
             const button = document.createElement("div"); // a div: a focused button would also react to Space
             button.textContent = label;
             button.style.cssText = "padding:2px 8px;border-radius:4px;cursor:pointer;user-select:none;background:rgba(255,255,255,0.08)";
@@ -397,6 +466,7 @@ export function createUi(ctx) {
             },
             js_ui_demo_current(index) {
                 seen = new Set(); // a demo (also the same one again) starts with its saved values
+                resetting = false;
                 keepScroll = 0;
                 tabs.forEach((tab, i) => {
                     tab.style.color = i === index ? "#4f4" : "";
@@ -404,6 +474,7 @@ export function createUi(ctx) {
                 });
                 tabs[index].scrollIntoView({ block: "nearest", inline: "nearest" });
                 demoId = demoIds[index];
+                console.log(`[js] settings: ${Object.keys(loadSaved()).length} saved values for ${demoId} at ${location.origin}`);
                 const url = new URL(location.href);
                 url.searchParams.set("scene", demoIds[index]);
                 history.replaceState(null, "", url); // reload keeps the demo, no new history entry per switch
@@ -423,6 +494,48 @@ export function createUi(ctx) {
             js_ui_title_bottom() {
                 if (!title) return 0;
                 return Math.ceil(title.getBoundingClientRect().bottom * devicePixelRatio);
+            },
+            // two columns, so the actions line up: keys light gray, actions darker,
+            // the panel's own "esc: dev menu" green at the end
+            js_ui_controls(ptr, len) {
+                guide?.remove();
+                guide = null;
+                const lines = text(ptr, len).split("\n").filter((line) => line);
+                if (!lines.length) return;
+                guide = document.createElement("div");
+                guide.style.cssText = OVERLAY_STYLE + ";top:24px;right:12px;display:grid;grid-template-columns:auto auto;" +
+                    "column-gap:0.5em;font-size:16px;line-height:24px";
+                const add = (key, action, keyColor, actionColor) => {
+                    for (const [content, color] of [[`${key}:`, keyColor], [action, actionColor]]) {
+                        const cell = document.createElement("div");
+                        cell.textContent = content;
+                        cell.style.color = color;
+                        guide.appendChild(cell);
+                    }
+                };
+                for (const line of lines) {
+                    const [key, action = ""] = line.split("|");
+                    add(key, action, "#999ab3", "#6b6b80");
+                }
+                add("ESC", "dev menu", "#338040", "#338040");
+                document.body.appendChild(guide);
+                showOverlays();
+            },
+            js_ui_hint(ptr, len) {
+                const content = text(ptr, len);
+                if (!content) {
+                    hint?.remove();
+                    hint = null;
+                    return;
+                }
+                if (!hint) {
+                    hint = document.createElement("div");
+                    hint.style.cssText = OVERLAY_STYLE + ";left:50%;top:50%;transform:translate(-50%,-50%);" +
+                        "font-size:24px;color:#999ab3";
+                    document.body.appendChild(hint);
+                }
+                hint.textContent = content;
+                showOverlays();
             },
             // logarithmic (log = 1): equal slider distance multiplies the value by the same amount, min must be > 0
             // a button that picks an image file and puts it into a texture. stays in this browser tab, never uploaded
