@@ -315,7 +315,7 @@ User: render a lot more asteroids, denser throughout; spread shared between plan
 - Waiting on the user: shorter labels inside blocks (needs their save pasted first), camera in blocks (distance | position | follow) offered.
 - Later, not now (user): put down new actuators and emitters anywhere on an object or in the world, set x, y, z (relative or fixed), etc. Inputs editable from the panel.
 - Open: names (actuator types, emitter types "main"/"side", instance names, Source / INPUT_*, Engine). The user found "reverse left" as an emitter name confusing (reads like a thruster); "nose left" was offered, not picked.
-- Session 6 first part (stars, explosion aim, denser middle, speed from hit) committed as 1d7859f, pushed and deployed. The rest (planet looks, color sets, asteroids, shared spread, pulls, sweep, final defaults) committed and pushed at the session's end on the user's word ("commit and publish this as a final revision for tonight"), not deployed.
+- Session 6 first part (stars, explosion aim, denser middle, speed from hit) committed as 1d7859f, pushed and deployed. The rest (planet looks, color sets, asteroids, shared spread, pulls, sweep, final defaults) committed and pushed at the session's end on the user's word ("commit and publish this as a final revision for tonight") as d9e6098, then deployed when the user asked ("did you push and deploy?" ... "yes").
 - Commit only when the user asks. Deploy only when the user asks.
 
 ## Machine notes

@@ -2,7 +2,7 @@ Read brain.md first.
 
 Project: hunter2 (this repo). A browser game in C, compiled to wasm, rendered with WebGPU through our own thin JS bridge. Physics from scratch (src/phys/). The game (src/demo/hunter2.c) is a flyable ship built from engine parts (src/engine/: objects, actuators, emitters, placings, inputs as data, parts as plain tables in hunter2.c), with an in-game editor panel (web/ui.js, src/engine/panel.c) on the right, hidden while flying and shown on Esc.
 
-Stage: everything is committed and pushed (main). Deployed up to 1d7859f (stars, explosion aim); the rest is not deployed yet. Last session, all checked by me in Chrome:
+Stage: everything is committed (d9e6098), pushed and deployed (https://hunter2.lucasreher.com). Last session, all checked by me in Chrome:
 - Stars on the sky (universe / stars): count, size px, brightness, twinkle, base color tinted toward tint 1 or 2. render/stars.c, no vertex buffer, a hash per star.
 - Explosions on hit: cone aimed between ricochet and straight out of the surface ("straight out" on the bullet's on hit block), "denser middle" on every emitter type's cone, "speed from hit" (share of the bullet's speed into the surface added to the sparks).
 - Planet looks: ball objects have a surface (pattern patches | bands | both, detail, roughness), air (rim color, thickness), colors "these three" | "10 sets" (built in sets in the shader) and variation. Each copy gets its own seed.
