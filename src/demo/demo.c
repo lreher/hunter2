@@ -9,7 +9,7 @@ Demo demo_list[DEMO_COUNT] = {
     // behind the ship and a bit above, looking at it. title: the ship's grey
     [DEMO_HUNTER2] = {"hunter2", "hunter2", "", 0xd9deeb, {0, 1.5f, 5.0f}, 0, -0.28f, 1},
     // in front of the box, a bit above, looking at its center
-    [DEMO_BALLS] = {"balls", "Erasmos Balls", "3", 0x44ff44, {BALLS_BOX_W / 2, 7.0f, 16.0f}, 0, -0.15f, 0},
+    [DEMO_BALLS] = {"balls", "Ball Pit", "3", 0x44ff44, {BALLS_BOX_W / 2, 7.0f, 16.0f}, 0, -0.15f, 0},
     // in front of the cloud, a bit above, looking at the origin. title: the orange of the big bodies
     [DEMO_CLOUD] = {"cloud", "Gravity Cloud", "5", 0xffa040, {0, 4.0f, 22.0f}, 0, -0.18f, 0},
     // in front of the bridge, a bit above the deck, looking at its middle. title: the wood of the deck

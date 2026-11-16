@@ -17,6 +17,8 @@ The game is being restructured onto an engine of parts (objects, actuators, emit
 - Bullets (2026-11-15, session 4, focus/engine.md "Bullets"): hold the left mouse button while flying, two emitters under the wings send out "bullet" objects (machine gun), 15/s each, 400 m/s, 2 s life. Nothing to hit yet.
 - Panel (2026-11-15, session 3, focus/engine.md "Panel"): a side panel tree on the right, hidden while flying, shown on Esc. ship (drag, its actuators and emitters), actuators (the shared ones), emitters (the shared ones, with streak, drag and start / end colors each), camera, debug, save / load. Types can be made, copied, renamed, split off and picked (emitters) in the panel, kept by Save. Slider values can be typed. The panel lines above about flight / particles groups describe the old panel.
 
+- Session 5 (2026-11-15): roll "when idle" nothing | level (starts on nothing), up/down thrusters on top and under the middle of the wings, planets drawn as smooth spheres, bullets explode on hit (focus/engine.md "Explosions on hit"), loading screen, the user's save as code defaults. "Erasmos Balls" is now "Ball Pit".
+
 ## Decisions
 - Game is 3D (user).
 - First feature: a controllable spaceship. Feel is the user's job; the code gives a clear tuning interface (user).

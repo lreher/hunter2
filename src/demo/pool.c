@@ -6,7 +6,7 @@
 
 // Ball Pool (book 6.2.4): the balls box with water in it. Each ball has its own FORCE_BUOYANCY (depth = its radius,
 // volume = its sphere), plus gravity, our walls and sphere collisions.
-// Mass grows with r^2 like Erasmos Balls, so density goes as 1 / r: small balls sink, big ones float.
+// Mass grows with r^2 like Ball Pit (was Erasmos Balls), so density goes as 1 / r: small balls sink, big ones float.
 // The water's level, density and drag act right away. Space respawns, at rest, anywhere in the box.
 
 #define POOL_BOX_W 16.0f

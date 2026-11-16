@@ -30,7 +30,8 @@ enum {
     PANEL_RENAME_EMITTER_TYPE,
     PANEL_SPLIT_EMITTER,
     PANEL_PICK_EMITTER_TYPE,    // index: the emitter, option: the type
-    PANEL_PICK_EMITS,           // index: the emitter type, option: 0 sparks, k = the k-th copies_only object
+    PANEL_PICK_EMITS,           // index: the emitter type, option: 0 sparks, 1 sparks once, k = the (k - 1)-th copies_only object
+    PANEL_PICK_HIT_BURST,       // index: the object, option: 0 nothing, k = emitter type k - 1 bursts where its copy hit
     PANEL_PLACE_AGAIN,          // index: the placing, its copies are put down fresh
 };
 #define PANEL_ACTION(what, index) ((what) << 16 | (index) << 8) // + the option, in the low 8 bits
@@ -88,12 +89,16 @@ static i32 panel_find_object(Engine *engine, const char *name) {
     return -1;
 }
 
-// the emits pick: 0 = sparks, k = the k-th copies_only object. -1 = none that far
+// the emits pick: 0 = sparks, 1 = sparks once, k = the (k - 1)-th copies_only object. -1 = none that far
 static i32 panel_emitted_object(Engine *engine, i32 pick) {
+    pick -= 1;
     for (i32 i = 0; i < engine->object_count; i++)
         if (engine->objects[i].copies_only && --pick == 0) return i;
     return -1;
 }
+
+#define PANEL_BURST_NAME "sparks once" // the emits pick's name for a burst type, also in the parts list ("explosion=sparks once")
+#define PANEL_BURST_SPARKS 300         // a type turned into a burst in the panel starts with this many
 
 static i32 panel_actuator_type_users(Engine *engine, i32 type) {
     i32 users = 0;
@@ -104,6 +109,7 @@ static i32 panel_actuator_type_users(Engine *engine, i32 type) {
 static i32 panel_emitter_type_users(Engine *engine, i32 type) {
     i32 users = 0;
     for (i32 i = 0; i < engine->emitter_count; i++) users += engine->emitters[i].type == type;
+    for (i32 i = 0; i < engine->object_count; i++) users += engine->objects[i].hit_burst == type + 1;
     return users;
 }
 
@@ -149,6 +155,8 @@ static void panel_delete_emitter_type(Engine *engine, i32 type) {
     engine->emitter_type_count--;
     for (i32 i = 0; i < engine->emitter_count; i++)
         if (engine->emitters[i].type > type) engine->emitters[i].type--;
+    for (i32 i = 0; i < engine->object_count; i++)
+        if (engine->objects[i].hit_burst > type + 1) engine->objects[i].hit_burst--;
 }
 
 // the typed name, if it is not empty and no other type has it
@@ -219,7 +227,12 @@ static void panel_do(Engine *engine, i32 what, i32 index, i32 option) {
             i32 object = panel_emitted_object(engine, option);
             type->emits = object >= 0 ? EMITS_OBJECTS : EMITS_SPARKS;
             if (object >= 0) type->object = object;
+            if (option != 1) type->burst = 0;
+            else if (type->burst <= 0) type->burst = PANEL_BURST_SPARKS;
         }
+        break;
+    case PANEL_PICK_HIT_BURST:
+        if (index < engine->object_count && option <= engine->emitter_type_count) engine->objects[index].hit_burst = option;
         break;
     }
 }
@@ -243,6 +256,8 @@ static void panel_write_parts(Engine *engine) {
         if (type->emits == EMITS_OBJECTS) {
             str_append(text, capacity, "=");
             str_append(text, capacity, engine->objects[type->object].name);
+        } else if (type->burst > 0) {
+            str_append(text, capacity, "=" PANEL_BURST_NAME);
         }
         str_append(text, capacity, "\n");
     }
@@ -258,6 +273,16 @@ static void panel_write_parts(Engine *engine) {
         str_append(text, capacity, engine->emitters[i].name);
         str_append(text, capacity, "=");
         str_append(text, capacity, engine->emitter_types[engine->emitters[i].type].name);
+        str_append(text, capacity, "\n");
+    }
+    for (i32 i = 0; i < engine->object_count; i++) { // "object hit bullet=explosion": what bursts where its copies hit
+        Object *object = &engine->objects[i];
+        if (!object->copies_only) continue;
+        str_append(text, capacity, "object hit ");
+        str_append(text, capacity, object->name);
+        str_append(text, capacity, "=");
+        if (object->hit_burst > 0 && object->hit_burst <= engine->emitter_type_count)
+            str_append(text, capacity, engine->emitter_types[object->hit_burst - 1].name);
         str_append(text, capacity, "\n");
     }
 }
@@ -313,6 +338,8 @@ static void panel_apply_parts(Engine *engine) {
             i32 object = object_at >= 0 ? panel_find_object(engine, name + object_at) : -1;
             type.emits = object >= 0 && engine->objects[object].copies_only ? EMITS_OBJECTS : EMITS_SPARKS;
             if (type.emits == EMITS_OBJECTS) type.object = object;
+            i32 burst = object_at >= 0 && panel_same(name + object_at, PANEL_BURST_NAME); // "explosion=sparks once"
+            type.burst = !burst ? 0 : type.burst > 0 ? type.burst : PANEL_BURST_SPARKS;
             if (old >= 0) emitter_type_now[old] = emitter_type_count;
             emitter_types[emitter_type_count++] = type;
         }
@@ -335,6 +362,16 @@ static void panel_apply_parts(Engine *engine) {
         }
         emitter->type = emitter_type_now[emitter->type] >= 0 ? emitter_type_now[emitter->type] : 0;
     }
+    for (i32 i = 0; i < engine->object_count; i++) { // and the burst an object leaves where its copies hit
+        Object *object = &engine->objects[i];
+        if (object->hit_burst <= 0) continue;
+        i32 old = object->hit_burst - 1;
+        if (emitter_type_now[old] < 0 && emitter_type_count < ENGINE_MAX_EMITTER_TYPES) {
+            emitter_type_now[old] = emitter_type_count;
+            emitter_types[emitter_type_count++] = engine->emitter_types[old];
+        }
+        object->hit_burst = emitter_type_now[old] >= 0 ? emitter_type_now[old] + 1 : 0;
+    }
     for (i32 i = 0; i < actuator_type_count; i++) engine->actuator_types[i] = actuator_types[i];
     for (i32 i = 0; i < emitter_type_count; i++) engine->emitter_types[i] = emitter_types[i];
     engine->actuator_type_count = actuator_type_count;
@@ -342,6 +379,15 @@ static void panel_apply_parts(Engine *engine) {
 
     for (const char *text = engine->panel_parts; *text;) { // then which type each part uses
         text = panel_next_line(text, line, sizeof line);
+        if (panel_starts_with(line, "object hit ")) { // "object hit bullet=explosion", nothing after = no burst
+            char *rest = line + 11;
+            i32 type_at = panel_split_use(rest);
+            i32 object = panel_find_object(engine, rest);
+            if (type_at < 0 || object < 0) continue;
+            i32 type = rest[type_at] ? panel_find_type(engine, 1, rest + type_at) : -1;
+            engine->objects[object].hit_burst = type + 1;
+            continue;
+        }
         i32 actuators = panel_starts_with(line, "actuator use ");
         if (!actuators && !panel_starts_with(line, "emitter use ")) continue;
         char *rest = line + (actuators ? 13 : 12);
@@ -457,6 +503,19 @@ void engine_add_panel(Engine *engine) {
         plat_ui_choice("glow", "Off|On", &object->glow);
         plat_ui_slider("halo m", 0, 10, 0.05f, &object->halo); // only drawn while glow is on
         plat_ui_block_end();
+        if (object->copies_only) { // a copy that hits something: a burst where it was, then gone
+            options[0] = 0; // "nothing|main|side|...|explosion"
+            str_append(options, sizeof options, "nothing");
+            for (i32 t = 0; t < engine->emitter_type_count; t++) {
+                str_append(options, sizeof options, "|");
+                str_append(options, sizeof options, engine->emitter_types[t].name);
+            }
+            plat_ui_block("on hit");
+            plat_ui_pick("burst", options, object->hit_burst, &engine->panel_action, PANEL_ACTION(PANEL_PICK_HIT_BURST, i));
+            plat_ui_slider("gone after steps", 1, 30, 1, &object->hit_steps);
+            plat_ui_choice("moves with", "what it hits|nothing", &object->hit_moves_with);
+            plat_ui_block_end();
+        }
         i32 actuator_count = 0, emitter_count = 0; // folds only for the ones it has
         for (i32 j = 0; j < engine->actuator_count; j++) actuator_count += engine->actuators[j].object == i;
         for (i32 j = 0; j < engine->emitter_count; j++) emitter_count += engine->emitters[j].object == i;
@@ -546,8 +605,8 @@ void engine_add_panel(Engine *engine) {
     if (engine->actuator_type_count < ENGINE_MAX_ACTUATOR_TYPES) // option = ACTUATOR_PUSH or ACTUATOR_TURN
         plat_ui_button("+ new", "push|turn", &engine->panel_action, PANEL_ACTION(PANEL_NEW_ACTUATOR_TYPE, 0));
 
-    options[0] = 0; // the emits pick: "sparks|bullet", sparks then every copies_only object
-    str_append(options, sizeof options, "sparks");
+    options[0] = 0; // the emits pick: "sparks|sparks once|bullet", sparks, a burst, then every copies_only object
+    str_append(options, sizeof options, "sparks|" PANEL_BURST_NAME);
     for (i32 k = 0; k < engine->object_count; k++) {
         if (!engine->objects[k].copies_only) continue;
         str_append(options, sizeof options, "|");
@@ -556,12 +615,16 @@ void engine_add_panel(Engine *engine) {
     plat_ui_group("emitters");
     for (i32 i = 0; i < engine->emitter_type_count; i++) {
         EmitterType *type = &engine->emitter_types[i];
-        i32 picked = 0; // sparks, or the emitted object's place in the pick
-        if (type->emits == EMITS_OBJECTS)
+        i32 picked = type->burst > 0 ? 1 : 0; // sparks, sparks once, or the emitted object's place in the pick
+        if (type->emits == EMITS_OBJECTS) {
+            picked = 1;
             for (i32 k = 0; k <= type->object && k < engine->object_count; k++) picked += engine->objects[k].copies_only;
+        }
         note[0] = 0; // "emits: sparks"
         str_append(note, sizeof note, "emits: ");
-        str_append(note, sizeof note, type->emits == EMITS_OBJECTS ? engine->objects[type->object].name : "sparks");
+        str_append(note, sizeof note, type->emits == EMITS_OBJECTS ? engine->objects[type->object].name
+                                      : type->burst > 0             ? PANEL_BURST_NAME
+                                                                    : "sparks");
         plat_ui_fold(type->name, note);
         plat_ui_fold_rename(engine->panel_name, ENGINE_NAME_SIZE, &engine->panel_action, PANEL_ACTION(PANEL_RENAME_EMITTER_TYPE, i));
         plat_ui_fold_button("copy", &engine->panel_action, PANEL_ACTION(PANEL_COPY_EMITTER_TYPE, i));

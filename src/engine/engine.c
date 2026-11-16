@@ -8,9 +8,21 @@
 //   4. every object: its turn actuators turn it, its push actuators push it (along its new axes), drag
 //   5. forces into velocities, then hits: contacts, everything moves, bounces (engine_move_with_hits)
 //   6. emitters of objects send out new copies (bullets)
-// Copies whose life is up are taken away at the start of the step.
+// Copies whose life is up are taken away at the start of the step, so are hit copies whose hit_steps are done: those
+// leave a burst behind (their object's hit_burst), queued here and fired by engine_draw.
 // Objects that are copies_only are not in the world themselves: they are not moved or drawn, only their copies are.
-// Per drawn frame (engine_draw): objects and copies drawn blended between steps, then every spark emitter fires.
+// Per drawn frame (engine_draw): objects and copies drawn blended between steps, then every spark emitter fires,
+// then the queued bursts.
+
+// bursts waiting for engine_draw (render takes 16 emitters a frame, the rest wait for the next). full: no new ones
+#define ENGINE_MAX_BURSTS 256
+typedef struct {
+    i32 type;          // emitter type
+    Vector3 position;  // world
+    Vector3 velocity;  // world, its sparks start with it
+} EngineBurst;
+static EngineBurst engine_bursts[ENGINE_MAX_BURSTS];
+static i32 engine_burst_count;
 
 void engine_start(Engine *engine) {
     for (i32 i = 0; i < engine->object_count; i++) object_start(&engine->objects[i]);
@@ -20,6 +32,7 @@ void engine_start(Engine *engine) {
         engine->emitters[i].owed = 1;
     }
     for (i32 i = 0; i < engine->copy_capacity; i++) engine->copies[i].used = 0;
+    engine_burst_count = 0;
     for (i32 i = 0; i < engine->placing_count; i++) placing_place(engine, i);
 }
 
@@ -65,6 +78,27 @@ static EngineBody engine_bodies[ENGINE_MAX_BODIES];
 static i32 engine_body_count;
 static ParticleContact engine_contact_lists[2][ENGINE_MAX_CONTACTS]; // this step's and last step's, swapped
 static i32 engine_contact_counts[2], engine_contacts_now;
+
+
+// the velocity of a body by its id (engine_gather_bodies), zero when it is gone
+static Vector3 engine_body_velocity(Engine *engine, i32 id) {
+    if (id >= 0 && id < engine->object_count) return engine->objects[id].particle.velocity;
+    i32 place = id - engine->object_count;
+    if (place >= 0 && place < engine->copy_capacity && engine->copies[place].used) return engine->copies[place].particle.velocity;
+    return vector3_zero();
+}
+
+// a copy whose object bursts on a hit, touching other (pushed by the solver this step): counts down from now on
+static void engine_mark_hit(Engine *engine, i32 id, i32 other) {
+    i32 place = id - engine->object_count;
+    if (place < 0 || place >= engine->copy_capacity) return;
+    ObjectCopy *copy = &engine->copies[place];
+    Object *object = &engine->objects[copy->object];
+    if (!copy->used || copy->hit_left > 0 || object->hit_burst <= 0) return;
+    i32 steps = (i32)(object->hit_steps + 0.5f);
+    copy->hit_left = steps < 1 ? 1 : steps;
+    copy->hit_body = other;
+}
 
 static void engine_gather_bodies(Engine *engine) {
     i32 count = 0;
@@ -140,6 +174,11 @@ static void engine_move_with_hits(Engine *engine, real time_step) {
     particle_contacts_solve(list, count, ENGINE_SOLVER_PASSES);
     for (i32 i = 0; i < engine_body_count; i++) particle_move(engine_bodies[i].particle, time_step);
     particle_contacts_bounce(list, count, ENGINE_SOLVER_PASSES);
+    for (i32 i = 0; i < count; i++) { // a pair the solver pushed apart touched: hits
+        if (list[i].impulse + list[i].fix_impulse <= 0) continue;
+        engine_mark_hit(engine, list[i].id_a, list[i].id_b);
+        engine_mark_hit(engine, list[i].id_b, list[i].id_a);
+    }
 }
 
 FORCE_INLINE void engine_step(Engine *engine, real time_step) {
@@ -154,6 +193,15 @@ FORCE_INLINE void engine_step(Engine *engine, real time_step) {
         ObjectCopy *copy = &engine->copies[i];
         if (!copy->used) continue;
         Object *object = &engine->objects[copy->object];
+        if (copy->hit_left > 0 && --copy->hit_left == 0) { // its hit is done: gone, a burst where it was
+            i32 type = object->hit_burst - 1;
+            if (type >= 0 && type < engine->emitter_type_count && engine_burst_count < ENGINE_MAX_BURSTS) {
+                Vector3 velocity = object->hit_moves_with == 0 ? engine_body_velocity(engine, copy->hit_body) : vector3_zero();
+                engine_bursts[engine_burst_count++] = (EngineBurst){type, copy->particle.position, velocity};
+            }
+            copy->used = 0;
+            continue;
+        }
         if (object->lifetime > 0) {
             copy->life_left -= time_step;
             if (copy->life_left <= 0) {
@@ -194,26 +242,30 @@ FORCE_INLINE void engine_step(Engine *engine, real time_step) {
     }
 }
 
+// an object or one of its copies at position, size across: its built model (with glow and halo) or the renderer's ball
+static void engine_draw_model(Object *object, Vector3 position, Quaternion rotation, real size) {
+    if (object->model == OBJECT_MODEL_BALL) {
+        render_draw_sphere(position, size / 2, object->color.x, object->color.y, object->color.z);
+        return;
+    }
+    if (object->model < 0) return;
+    render_draw_model(object->model, position, rotation, vector3_create(size, size, size), object->color.x, object->color.y,
+                      object->color.z, (f32)object->glow);
+    if (object->glow) render_draw_glow(position, object->halo, object->color.x, object->color.y, object->color.z);
+}
+
 void engine_draw(Engine *engine, f32 alpha) {
     for (i32 i = 0; i < engine->object_count; i++) {
         Object *object = &engine->objects[i];
-        if (object->model < 0 || object->copies_only) continue;
-        Vector3 scale = vector3_create(object->size, object->size, object->size);
-        render_draw_model(object->model, object_drawn_position(object, alpha), object_drawn_rotation(object, alpha), scale,
-                          object->color.x, object->color.y, object->color.z, (f32)object->glow);
-        if (object->glow)
-            render_draw_glow(object_drawn_position(object, alpha), object->halo, object->color.x, object->color.y, object->color.z);
+        if (object->copies_only) continue;
+        engine_draw_model(object, object_drawn_position(object, alpha), object_drawn_rotation(object, alpha), object->size);
     }
     for (i32 i = 0; i < engine->copy_capacity; i++) {
         ObjectCopy *copy = &engine->copies[i];
         if (!copy->used) continue;
         Object *object = &engine->objects[copy->object];
-        if (object->model < 0) continue;
-        Vector3 scale = vector3_create(copy->size, copy->size, copy->size);
         Vector3 position = vector3_lerp(copy->previous_position, copy->particle.position, alpha);
-        render_draw_model(object->model, position, copy->rotation, scale, object->color.x, object->color.y, object->color.z,
-                          (f32)object->glow);
-        if (object->glow) render_draw_glow(position, object->halo, object->color.x, object->color.y, object->color.z);
+        engine_draw_model(object, position, copy->rotation, copy->size);
     }
     for (i32 i = 0; i < engine->emitter_count; i++) {
         Emitter *emitter = &engine->emitters[i];
@@ -234,4 +286,12 @@ void engine_draw(Engine *engine, f32 alpha) {
         if (input < 0) input = 0;
         emitter_fire(emitter, &engine->emitter_types[emitter->type], position, rotation, velocity, input);
     }
+    i32 waiting = 0; // bursts last, in the order they came. the ones that did not fit wait for the next frame
+    for (i32 i = 0; i < engine_burst_count; i++) {
+        EngineBurst burst = engine_bursts[i];
+        if (burst.type >= engine->emitter_type_count) continue;
+        if (!emitter_burst(burst.type, &engine->emitter_types[burst.type], burst.position, burst.velocity))
+            engine_bursts[waiting++] = burst;
+    }
+    engine_burst_count = waiting;
 }

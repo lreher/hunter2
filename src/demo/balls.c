@@ -4,7 +4,7 @@
 #include "render/render.h"
 #include "demo/demo.h"
 
-// Erasmos Balls: balls in a box. Particles (ch 3), gravity and damping (ch 3-4), our own walls and sphere collisions.
+// Ball Pit (was Erasmos Balls): balls in a box. Particles (ch 3), gravity and damping (ch 3-4), our own walls and sphere collisions.
 
 // The world is in meters, y up, z toward the starting camera. The box spans x 0..W, y 0..H, z -D/2..D/2.
 #define BALLS_BOX_W 16.0f

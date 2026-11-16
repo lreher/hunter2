@@ -72,7 +72,7 @@ const element = (tag) => ({ tag, style: {}, handlers: {}, textContent: "", value
   append(label, input) { if (input) sliders[label.textContent] = input; else tabs.push(label); }, // panel: label, slider, value. demo bar: one tab
   set(v) { this.value = String(this.toPosition ? this.toPosition(v) : v); this.handlers.input(); } });
 globalThis.document = {
-  getElementById: () => canvas, body: { appendChild() {} }, pointerLockElement: null, createElement: element,
+  getElementById: (id) => (id === "screen" ? canvas : element("div")), body: { appendChild() {} }, pointerLockElement: null, createElement: element,
   exitPointerLock() { this.pointerLockElement = null; },
 };
 globalThis.location = { href: "http://localhost/" + (process.env.SCENE ? "?scene=" + process.env.SCENE : ""),
@@ -85,10 +85,18 @@ globalThis.devicePixelRatio = 1;
 globalThis.GPUBufferUsage = {}; globalThis.GPUTextureUsage = {};
 globalThis.fetch = async () => new Response(fs.readFileSync(root + "game.wasm"), { headers: { "content-type": "application/wasm" } });
 let pending = null;
-globalThis.requestAnimationFrame = (cb) => { pending = cb; };
+// the game loop (index.js's frame) waits for frame() below. Anything else asking for a frame while loading (the
+// loading screen's steps wait for a paint) runs right away, or start() would never finish
+let starting = false;
+globalThis.requestAnimationFrame = (cb) => {
+  if (starting && cb.name !== "frame") setTimeout(() => cb(t), 0);
+  else pending = cb;
+};
 
 export async function start() {
+  starting = true;
   await import(root + "index.js");
+  starting = false;
 }
 
 // runs one browser frame at 60 Hz, returns the spheres drawn

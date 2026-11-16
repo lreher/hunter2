@@ -146,8 +146,9 @@ static u32 particle_capacity(void) {
     return (u32)capacity;
 }
 
-void render_emit(RenderEmitter *emitter) {
+i32 render_emit(RenderEmitter *emitter) {
     RenderEmitterMemory *memory = &emitter->memory;
+    if (emitter->burst > 0 && particle_frame.emitter_count >= PARTICLE_MAX_EMITTERS) return 0; // try again next frame
     if (!memory->started) {
         memory->previous_position = emitter->position;
         memory->carry = 0;
@@ -168,12 +169,12 @@ void render_emit(RenderEmitter *emitter) {
             .rotation = {rotation.x, rotation.y, rotation.z, rotation.w},
         };
     }
-    f32 wanted = emitter->rate * particle_seconds + memory->carry;
+    f32 wanted = emitter->burst > 0 ? emitter->burst : emitter->rate * particle_seconds + memory->carry;
     u32 count = wanted > 0 ? (u32)wanted : 0;
     memory->carry = wanted - (f32)count; // the part of a particle left over, so low rates still come out right
     u32 capacity = particle_capacity();
     if (count > capacity - particle_frame.spawn_total) count = capacity - particle_frame.spawn_total;
-    particle_estimate += emitter->rate * emitter->lifetime;
+    particle_estimate += emitter->burst > 0 ? emitter->burst : emitter->rate * emitter->lifetime;
     if (count > 0 && particle_frame.emitter_count < PARTICLE_MAX_EMITTERS) {
         ParticleEmitterGpu *gpu = &particle_frame.emitters[particle_frame.emitter_count++];
         *gpu = (ParticleEmitterGpu){
@@ -195,6 +196,7 @@ void render_emit(RenderEmitter *emitter) {
         if (longest > particle_awake_seconds) particle_awake_seconds = longest;
     }
     memory->previous_position = emitter->position;
+    return 1;
 }
 
 i32 render_particle_estimate(void) {

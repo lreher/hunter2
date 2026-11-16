@@ -242,11 +242,32 @@ Part 3 built (hits, not yet checked in Chrome):
 
 - "Camera no longer zooms out with thrust" (user): not a code change. The user's save has ship mass 100000 kg (code 1000): 70000 N gives 0.7 m/s^2, 3.7 m/s after 8 s of W, so the speed based pull back barely moves (6.9 to 7.1 m). Code defaults reach 136 m/s and 10.5 m. User's gravity strength in that save: 23714 (not yet in code defaults, the user said to only update what could be the issue).
 - Up/down thrusters (user: two from the middle of the wings, picked B of A both on top / B down on top, up underneath): emitters "keel" and "top ridge" replaced by "left wing bottom", "right wing bottom" (up, sparks down, y -0.08) and "left wing top", "right wing top" (down, sparks up, y 0.12), all at x +-0.45, z 0.3 (just behind the machine guns), type side. Names were Claude's offer, not confirmed. An old parts list naming keel / top ridge is skipped line by line. Headless: Shift and Control each fire two. Checked in Chrome (user: "great").
+- Planets looked polygony (user: "the balls in the other demos look muuuch nicer"). Now drawn with the renderer's sphere (render_draw_sphere: smooth normals, level of detail by size on screen up to 5120 triangles, contact shadows). Object.model = OBJECT_MODEL_BALL (engine.h) picks it, engine_draw_model draws either. No panel pick (user: "just use the nice one no picker"). Balls have no glow or halo, so the planet's glow / halo controls do nothing now. Bullets keep their built ball (4 cuts, 128 faces). The 16 cut planet model is gone. Headless: 150 spheres, radius 10..99.8 m. Not yet checked in Chrome.
+- Also found, not changed: sun shadows only cover 3 m around the ship (hunter2_draw), anything outside reads the shadow map's clamped edge. User: it is mostly the polygons.
+
+## Explosions on hit (session 5, talked through and built, not yet checked in Chrome)
+User: bullets that hit a planet explode (after their push lands, a tick or so) into a once off emitter, a beautiful explosion with the thruster's particle look. Agreed sketch (user: "AWESOME"): object block "on hit" [ burst: explosion ] [ gone after: 1 step ]; emitter type "explosion" emits sparks, fires once. Sparks move with: user said "A and C" (what it hits / nothing), built as a choice. Bursts on any object (user).
+Built:
+- EmitterType.burst (> 0: fires that many sparks once, not a rate). Panel: the emits pick has "sparks once" (sparks | sparks once | bullet | planet); a burst type shows "sparks" (log 10..100000) instead of rate, no base speed or cone squeeze (input is always 1). Parts list: "emitter explosion=sparks once".
+- Object (copies_only): hit_burst (0 nothing, k = emitter type k - 1), hit_steps, hit_moves_with (0 what it hits, 1 nothing). Panel block "on hit": pick "burst" (nothing | every emitter type), slider "gone after steps" 1..30, choice "moves with" what it hits | nothing. Parts list: "object hit bullet=explosion" (the pick is not a saved control, so it goes there). Types an object bursts with are kept by a parts list load and count as users (no delete while used).
+- engine.c: after the bounce, every contact the solver pushed (impulse + fix_impulse > 0) marks a copy whose object bursts: hit_left = hit_steps, hit_body = the other. At the start of a step a copy whose hit_left reaches 0 is gone and queues a burst (engine_bursts, 256) at its spot with the hit body's velocity now (or none). engine_draw fires queued bursts after the spark emitters (emitter_burst -> render_emit with burst); render takes 16 emitters a frame, render_emit now returns 0 when a burst does not fit and it waits for the next frame.
+- hunter2: "explosion" 2000 sparks, speed 15 +-10 m/s, cone 3.14, life 1 +-0.8 s, size 0.08 m, main's colors, drag 1.5. Bullet: burst explosion (set in hunter2_init), 1 step, moves with what it hits.
+- Headless (spread 300 m, left mouse 4 s): 75 bursts of 2000 sparks.
+- Process note: the user tested before hunter2 had the explosion type ("its not exploding") and said "you keep stopping": finish a change through build, check and server restart in one go before replying.
+- "Not exploding" in Chrome was the user's save: a Save during a half built moment stored "object hit bullet=" (nothing), which loads over the code default. Fixed by the user picking explosion again. build.sh writes web/game.wasm that the running server serves, so a reload picks up half finished builds: avoid building mid change where a Save could catch it.
+
+## Loading screen (session 5, user picked B: names the step)
+- index.html: #loading over everything (black, "hunter2" in Tiny5, the step under it). index.js: step(name) logs the last step's time ("[js] load <step>: N ms"), shows the name, waits for a paint (rAF then setTimeout) before going on. Steps: starting WebGPU, loading game file, building the world (game_init), drawing the first frame; removed after the first frame.
+- fake.mjs: rAF while start() runs (not the loop's "frame") runs at once; getElementById gives an element for ids other than "screen".
+- Headless (user's save): world 9 ms, so placing is not what is slow; Chrome's console times will say which step is. Not yet checked in Chrome.
+
+## Defaults from the user's save (session 5 end)
+- The user's save baked into code defaults: gravity 11858 x real G, bounce 0.95; planets 396, spread 4500 m, size 1..197 m, speed 0..5.5 m/s; bullet mass 19.5 kg, life 7.2 s, size 0.15 m, color #6694ff, halo 0.2 m; machine gun rate 10, speed 2000, spread 8, cone 0; explosion speed 0, spread 13.5, size 0.235 m, colors #fff9e5 -> black; side colors #828282 -> black, reverse #8f8f8f -> black; debug grid off. Everything else already matched. "bullet/gone after steps" was 0 in the save (below the slider's 1, acts as 1): code keeps 1.
+- Demo "balls" renamed "Ball Pit" (was "Erasmos Balls"), id unchanged.
 
 ## Next
-- Next session (user): quality of life improvements first (the user says which), then asteroids as well as planets, "similar config" (likely a second placing and object; talk it through first).
+- Next: asteroids as well as planets, "similar config" (likely a second placing and object; talk it through first). Quality of life done in session 5 (roll when idle, up/down on the wings, smooth planets, explosions on hit, loading screen).
 - Hits checked in Chrome (user first said "not working", then "it is working sorry").
-- Part 4 (tune strength for the scale). Their gravity strength is only in their save: paste it before it goes into code defaults.
 - The user checks bullets in Chrome (hold left mouse while flying), and the objects heading / emits pick in the panel.
 - Waiting on the user: shorter labels inside blocks (needs their save pasted first), camera in blocks (distance | position | follow) offered.
 - The user checks parts editing and colors in Chrome. First use: put the forward thrusters (emitters "reverse left" / "reverse right") on the "side" emitter type and Save.

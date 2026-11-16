@@ -63,6 +63,10 @@ extern InputTuning input_tuning;
 
 // ---- Objects (engine/object.c)
 // A physics object. Forward is -z in its own axes (the way an unturned camera looks), y up, x right.
+// Object.model: the renderer's sphere (render_draw_sphere) instead of a built model. Smooth, finer the bigger it is on
+// screen, as in the other demos. 1 m across at size 1. No glow or halo (the sphere has neither)
+#define OBJECT_MODEL_BALL ((RenderModel)-2)
+
 typedef struct {
     const char *name;        // panel group title
     Vector3 start_position;  // m, world: where engine_start puts it
@@ -73,12 +77,16 @@ typedef struct {
     f32 density;             // kg per m^3. > 0: a copy's mass comes from its size (a ball that wide), not from mass
     f32 drag_cut;            // %, how much less drag while drag_cut_input is on. 100 = none at all
     Source drag_cut_input;
-    RenderModel model;       // drawn with it. -1 = nothing to draw
+    RenderModel model;       // drawn with it. -1 = nothing to draw, OBJECT_MODEL_BALL = the renderer's smooth sphere
     f32 size;                // scale the model is drawn at
     f32 radius;              // m, the ball it is for gravity (and hits) when in the world. copies: half their size
     Vector3 color;           // 0..1
     i32 glow;                // 1 = drawn in its full color everywhere, no sun or shade (a bullet)
     f32 halo;                // m, glow on: a soft light in its color around it, gone at this distance. 0 = none
+    // copies_only: what a copy does when it hits something (panel block "on hit")
+    i32 hit_burst;           // 0 = nothing, k = emitter type k - 1 fires once where the copy was, and the copy is gone
+    f32 hit_steps;           // physics steps after the hit before that (its push reaches what it hit first). at least 1
+    i32 hit_moves_with;      // the burst's sparks start with: 0 = the velocity of what it hit, 1 = nothing (stay put)
     // state
     Particle particle;       // position, velocity, mass. forces go through particle_add_force
     Vector3 previous_position;          // from the step before, for blending
@@ -141,6 +149,7 @@ typedef struct {
     Vector3 color_start, color_end; // 0..1, color at birth and at death
     f32 stretch;                    // seconds: a moving spark is drawn as a streak as long as the way it goes in this time
     f32 drag;                       // share of a spark's speed lost per second, for its whole life
+    f32 burst;                      // > 0: fires once, this many sparks at once (an object's "on hit"), not at a rate
 } EmitterType;
 
 // Emitter: one placed instance of an emitter type
@@ -167,6 +176,8 @@ typedef struct {
     Particle particle;           // position, velocity, mass
     Vector3 previous_position;   // from the step before, for blending
     Quaternion rotation;         // the emitter's when it went out
+    i32 hit_left;                // steps left before it bursts after a hit (its object's hit_burst), 0 = not hit
+    i32 hit_body;                // the id of what it hit (engine_gather_bodies): an object's place, or object_count + a copy's
 } ObjectCopy;
 
 // fires once (call every drawn frame, even at input 0, so it knows where it was when it fires again).
@@ -174,6 +185,7 @@ typedef struct {
 void emitter_fire(Emitter *emitter, const EmitterType *type, Vector3 position, Quaternion rotation, Vector3 velocity,
                   f32 input);
 void emitter_reset(Emitter *emitter); // what it is attached to jumped: no trail from the old spot
+i32 emitter_burst(i32 type_index, const EmitterType *type, Vector3 position, Vector3 velocity); // once. 0 = no room now
 void emitter_type_add_sliders(EmitterType *type); // into the panel fold that is open. sparks or objects, by emits
 
 // ---- Placings (engine/placing.c): the universe's. Puts count copies of an object down at random spots inside a ball

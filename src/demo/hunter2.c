@@ -16,9 +16,9 @@
 #define HUNTER2_GRID_LINES 41      // per direction (400 m across)
 #define HUNTER2_GRID_HEIGHT -5.0f  // m, y of the grid plane
 
-static i32 hunter2_grid = 1; // panel: debug grid on or off
+static i32 hunter2_grid = 0; // panel: debug grid on or off
 
-// ---- The parts. Defaults = the user's saved settings (2026-11-15). In the ship's axes: nose -z, y up, right wing +x
+// ---- The parts. Defaults = the user's saved settings (2026-11-15, session 5). In the ship's axes: nose -z, y up, right wing +x
 
 enum { HUNTER2_SHIP, HUNTER2_BULLET, HUNTER2_PLANET, HUNTER2_OBJECT_COUNT };
 #define HUNTER2_DRIFT INPUT_KEY(KEY_MOUSE_RIGHT) // hold: no thrust, less drag, the ship keeps its speed while it turns
@@ -33,8 +33,11 @@ static Object hunter2_objects[HUNTER2_OBJECT_COUNT] = {
     },
     // not in the world itself: the machine gun emitters send out copies. no drag: it keeps its speed until its life is up
     [HUNTER2_BULLET] = {
-        .name = "bullet", .copies_only = 1, .mass = 0.1f, .drag = 0, .lifetime = 2,
-        .model = -1, .size = 0.25f, .color = {1.0f, 0.8f, 0.35f}, .glow = 1, .halo = 1, // a ball, built in hunter2_init
+        .name = "bullet", .copies_only = 1, .mass = 19.5f, .drag = 0, .lifetime = 7.2f,
+        .model = -1, .size = 0.15f, .color = {0.4f, 0.58f, 1.0f}, .glow = 1, .halo = 0.2f, // a ball, built in hunter2_init
+        // a hit: one step to push what it hit, then gone, an explosion where it was (hit_burst set in hunter2_init: the
+        // emitter types come further down), moving with what it hit
+        .hit_steps = 1, .hit_moves_with = 0,
     },
     // put down by the universe's placing "planets", each its own size. mass from density, like Gravity Cloud
     [HUNTER2_PLANET] = {
@@ -43,10 +46,10 @@ static Object hunter2_objects[HUNTER2_OBJECT_COUNT] = {
     },
 };
 
-// the universe (user): one placing for now. 150 planets 20 to 200 m across in a ball 5 km across (user: "lets try that")
+// the universe (user): one placing for now. 396 planets 1 to 197 m across in a ball 4.5 km across
 static Placing hunter2_placings[] = {
-    {.name = "planets", .object = HUNTER2_PLANET, .count = 150, .spread = 5000, .size_min = 20, .size_max = 200,
-     .speed_min = 0, .speed_max = 20},
+    {.name = "planets", .object = HUNTER2_PLANET, .count = 396, .spread = 4500, .size_min = 1, .size_max = 197,
+     .speed_min = 0, .speed_max = 5.5f},
 };
 
 // names for now (focus/engine.md)
@@ -98,7 +101,7 @@ static Actuator hunter2_actuators[HUNTER2_ACTUATOR_COUNT] = {
 // spark numbers = the user's save (2026-11-15, session 4). "reverse" is the user's own type, made in the panel
 enum {
     HUNTER2_EMITTER_TYPE_MAIN, HUNTER2_EMITTER_TYPE_SIDE, HUNTER2_EMITTER_TYPE_REVERSE, HUNTER2_EMITTER_TYPE_MACHINE_GUN,
-    HUNTER2_EMITTER_TYPE_COUNT
+    HUNTER2_EMITTER_TYPE_EXPLOSION, HUNTER2_EMITTER_TYPE_COUNT
 };
 static EmitterType hunter2_emitter_types[ENGINE_MAX_EMITTER_TYPES] = {
     [HUNTER2_EMITTER_TYPE_MAIN] = {
@@ -109,16 +112,23 @@ static EmitterType hunter2_emitter_types[ENGINE_MAX_EMITTER_TYPES] = {
     [HUNTER2_EMITTER_TYPE_SIDE] = {
         .name = "side", .rate = 800, .speed = 5, .speed_spread = 5, .base_speed = 16, .cone = 0.2f,
         .cone_squeeze = 0.3f, .lifetime = 1.5f, .lifetime_spread = 1, .size = 0.02f,
-        .color_start = {1.0f, 0.9f, 0.6f}, .color_end = {1.0f, 0.3f, 0.05f}, .stretch = 0, .drag = 0.55f,
+        .color_start = {0.51f, 0.51f, 0.51f}, .color_end = {0, 0, 0}, .stretch = 0, .drag = 0.55f,
     },
     [HUNTER2_EMITTER_TYPE_REVERSE] = {
         .name = "reverse", .rate = 900, .speed = 30, .speed_spread = 25.5f, .base_speed = 50, .cone = 0.1f,
         .cone_squeeze = 0.2f, .lifetime = 2, .lifetime_spread = 1, .size = 0.02f,
-        .color_start = {1.0f, 0.9f, 0.6f}, .color_end = {1.0f, 0.3f, 0.05f}, .stretch = 0, .drag = 1,
+        .color_start = {0.56f, 0.56f, 0.56f}, .color_end = {0, 0, 0}, .stretch = 0, .drag = 1,
     },
-    // bullets: 15 a second from each wing, 400 m/s on top of the ship's own speed
+    // bullets: 10 a second from each wing, 2000 m/s (give or take 8) on top of the ship's own speed
     [HUNTER2_EMITTER_TYPE_MACHINE_GUN] = {
-        .name = "machine gun", .emits = EMITS_OBJECTS, .object = HUNTER2_BULLET, .rate = 15, .speed = 400, .cone = 0.003f,
+        .name = "machine gun", .emits = EMITS_OBJECTS, .object = HUNTER2_BULLET, .rate = 10, .speed = 2000, .speed_spread = 8,
+        .cone = 0,
+    },
+    // where a bullet hits: fires once, every way (cone 3.14), speeds 0 give or take 13.5, white hot to black
+    [HUNTER2_EMITTER_TYPE_EXPLOSION] = {
+        .name = "explosion", .burst = 2000, .rate = 5000, .speed = 0, .speed_spread = 13.5f, .base_speed = 0, .cone = 3.14f,
+        .lifetime = 1, .lifetime_spread = 0.8f, .size = 0.235f,
+        .color_start = {1.0f, 0.976f, 0.898f}, .color_end = {0, 0, 0}, .stretch = 0, .drag = 1.5f,
     },
 };
 
@@ -146,7 +156,7 @@ static Emitter hunter2_emitters[HUNTER2_EMITTER_COUNT] = {
      .direction = {0, 0, -1}, .input = INPUT_KEY(KEY_MOUSE_LEFT)},
 };
 
-// places for bullets in flight: 2 emitters x 15 a second x 2 s = 60, room to spare when the panel turns them up
+// places for copies: 396 planets + 2 emitters x 10 a second x 7.2 s = 144 bullets, room to spare for the panel
 #define HUNTER2_COPY_CAPACITY 2048 // bullets and planets
 static ObjectCopy hunter2_copies[HUNTER2_COPY_CAPACITY];
 
@@ -158,15 +168,14 @@ static Engine hunter2_engine = {
     .emitters = hunter2_emitters, .emitter_count = HUNTER2_EMITTER_COUNT,
     .copies = hunter2_copies, .copy_capacity = HUNTER2_COPY_CAPACITY,
     .placings = hunter2_placings, .placing_count = (i32)(sizeof hunter2_placings / sizeof hunter2_placings[0]),
-    // a 200 m planet pulls the ship 2.8 m/s^2 at its surface, two 100 m planets 500 m apart pull each other 0.001 m/s^2
-    .gravity = 100000,
-    .bounce = 0.3f, // as Gravity Cloud
+    // the user's: 11858 x real G. a 197 m planet pulls the ship about 0.3 m/s^2 at its surface
+    .gravity = 11858,
+    .bounce = 0.95f,
 };
 #define hunter2_ship (&hunter2_objects[HUNTER2_SHIP])
 
 static RenderModel hunter2_ship_model = -1; // built once, kept across demo switches
 static RenderModel hunter2_ball_model = -1;   // bullets
-static RenderModel hunter2_planet_model = -1; // the same, cut finer: planets are seen up close
 
 // a wedge: nose, two wing tips, a low ridge on top and a keel below, all meeting at the back. 1.8 m long and wide
 static void hunter2_build_ship_model(void) {
@@ -185,7 +194,7 @@ static void hunter2_build_ship_model(void) {
 
 // a ball 1 m across the middle (drawn at the object's size): the 8 faces of an octahedron, each cut into cuts x cuts
 // smaller triangles, every corner pushed out onto the ball. 4 cuts: 128 flat faces, 16 cuts: 2048
-#define HUNTER2_BALL_MAX_CUTS 16
+#define HUNTER2_BALL_MAX_CUTS 4
 static RenderModel hunter2_build_ball_model(i32 cuts) {
     static Vector3 corners[8 * HUNTER2_BALL_MAX_CUTS * HUNTER2_BALL_MAX_CUTS * 3];
     i32 count = 0;
@@ -341,9 +350,9 @@ static void hunter2_init(void) {
     if (hunter2_ship_model < 0) hunter2_build_ship_model();
     hunter2_ship->model = hunter2_ship_model;
     if (hunter2_ball_model < 0) hunter2_ball_model = hunter2_build_ball_model(4);
-    if (hunter2_planet_model < 0) hunter2_planet_model = hunter2_build_ball_model(16);
     hunter2_objects[HUNTER2_BULLET].model = hunter2_ball_model;
-    hunter2_objects[HUNTER2_PLANET].model = hunter2_planet_model;
+    hunter2_objects[HUNTER2_BULLET].hit_burst = HUNTER2_EMITTER_TYPE_EXPLOSION + 1;
+    hunter2_objects[HUNTER2_PLANET].model = OBJECT_MODEL_BALL; // the renderer's smooth sphere, as in the other demos
     demo_far = 20000; // planets kilometers apart
     engine_start(&hunter2_engine);
     hunter2_camera.rotation = hunter2_camera.previous_rotation = hunter2_ship->rotation;

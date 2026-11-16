@@ -61,12 +61,14 @@ typedef struct {
     i32 type;                  // 0..15, which emitter type it is. its sparks remember it for their whole life
     f32 drag;                  // share of speed lost per second, for every live spark of this type
     f32 stretch;               // seconds: a moving spark of this type is drawn as a streak as long as the way it goes in this time
+    f32 burst;                 // > 0: this many sparks now, instead of rate (a one off burst, give it fresh memory)
     RenderEmitterMemory memory;
 } RenderEmitter;
 // between render_begin and render_end. up to 16 per frame. local emitters: up to 64 in all (their anchors are never
 // given back), past that they act as world emitters. drag and stretch apply to all sparks of its type (older ones
-// too), so emit every frame even at rate 0, and give emitters of one type the same drag and stretch
-void render_emit(RenderEmitter *emitter);
+// too), so emit every frame even at rate 0, and give emitters of one type the same drag and stretch.
+// returns 0 when its new sparks did not fit this frame (16 emitters already), 1 otherwise
+i32 render_emit(RenderEmitter *emitter);
 
 // For every particle. f32 so a panel slider can point at it
 typedef struct {
