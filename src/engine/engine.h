@@ -87,6 +87,9 @@ typedef struct {
     i32 hit_burst;           // 0 = nothing, k = emitter type k - 1 fires once where the copy was, and the copy is gone
     f32 hit_steps;           // physics steps after the hit before that (its push reaches what it hit first). at least 1
     i32 hit_moves_with;      // the burst's sparks start with: 0 = the velocity of what it hit, 1 = nothing (stay put)
+    f32 hit_straight_out;    // where the burst's cone points: 0 = the way the copy bounces off (mirrored off the surface),
+                             // 1 = straight out of the surface, between = in between
+    f32 hit_speed_share;     // the burst's sparks get this times the hit speed (the copy's speed into the surface) on top
     // state
     Particle particle;       // position, velocity, mass. forces go through particle_add_force
     Vector3 previous_position;          // from the step before, for blending
@@ -144,6 +147,7 @@ typedef struct {
     f32 base_speed;                 // m/s at input 0: sparks never come out slower than this, however weak the input
     f32 cone;                       // radians, half the angle of the cone they spread in, at input 1
     f32 cone_squeeze;               // how much more input narrows the cone. 0 = never
+    f32 cone_middle;                // 0 = sparks even over the cone, 1 = densest in the middle, none at the edge
     f32 lifetime, lifetime_spread;  // seconds, give or take lifetime_spread
     f32 size;                       // m, half the width of the glow
     Vector3 color_start, color_end; // 0..1, color at birth and at death
@@ -178,6 +182,8 @@ typedef struct {
     Quaternion rotation;         // the emitter's when it went out
     i32 hit_left;                // steps left before it bursts after a hit (its object's hit_burst), 0 = not hit
     i32 hit_body;                // the id of what it hit (engine_gather_bodies): an object's place, or object_count + a copy's
+    Vector3 hit_direction;       // unit, world: where its burst's cone points (its object's hit_straight_out)
+    real hit_speed;              // m/s, how fast it went into the surface of what it hit (its speed along the line between them)
 } ObjectCopy;
 
 // fires once (call every drawn frame, even at input 0, so it knows where it was when it fires again).
@@ -185,7 +191,8 @@ typedef struct {
 void emitter_fire(Emitter *emitter, const EmitterType *type, Vector3 position, Quaternion rotation, Vector3 velocity,
                   f32 input);
 void emitter_reset(Emitter *emitter); // what it is attached to jumped: no trail from the old spot
-i32 emitter_burst(i32 type_index, const EmitterType *type, Vector3 position, Vector3 velocity); // once. 0 = no room now
+i32 emitter_burst(i32 type_index, const EmitterType *type, Vector3 position, Vector3 direction, Vector3 velocity,
+                  f32 extra_speed); // once. 0 = no room now
 void emitter_type_add_sliders(EmitterType *type); // into the panel fold that is open. sparks or objects, by emits
 
 // ---- Placings (engine/placing.c): the universe's. Puts count copies of an object down at random spots inside a ball
@@ -213,6 +220,7 @@ typedef struct {
     struct Placing *placings;     i32 placing_count;
     f32 gravity;   // the universe's: every object and copy pulls on every other, real G times this. 0 = none
     f32 bounce;    // the universe's: share of the speed two things meet with that they part with, 0..1
+    RenderStars stars; // the universe's: stars on the sky, look only. count 0 = none
     i32 inputs_on; // 0 = keys, aim and tilt read 0 (the free camera has the keys). actuators still ease down
     // the panel's (engine/panel.c)
     i32 panel_action;                         // a click writes what it asks for here, engine_update_panel does it

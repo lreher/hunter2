@@ -34,6 +34,19 @@ void render_draw_model(RenderModel model, Vector3 position, Quaternion rotation,
 void render_draw_glow(Vector3 center, f32 radius, f32 r, f32 g, f32 b);
 void render_draw_line(Vector3 from, Vector3 to, f32 r, f32 g, f32 b);         // 1 pixel wide (WebGPU lines)
 
+// Stars on the sky (render/stars.c): infinitely far, they turn with the camera but never get closer. Look only.
+// f32 fields so panel sliders can point at them. Call once per frame between render_begin and render_end
+#define RENDER_MAX_STARS 100000
+typedef struct {
+    f32 count;
+    f32 size;       // pixels across the brightest stars' core, faint ones are smaller
+    f32 brightness; // 1 = the brightest stars at full color
+    f32 twinkle;    // 0..1: how far each star's brightness flickers, 0 = steady
+    f32 color[3];   // every star is this color, tinted a random amount toward one of the two tints
+    f32 tint_one[3], tint_two[3];
+} RenderStars;
+void render_draw_stars(const RenderStars *stars);
+
 // Particles: glowing sparks that live on the GPU, look only (render/particles.c). Keep a RenderEmitter, set its
 // fields every frame and call render_emit once per frame. memory is render_emit's own: keep it, never set it.
 // Two kinds:
@@ -55,6 +68,7 @@ typedef struct {
     f32 rate;                  // particles per second
     f32 speed, speed_spread;   // m/s along the direction, give or take speed_spread
     f32 cone;                  // radians, half the angle of the cone they spread in
+    f32 cone_middle;           // 0 = even over the cone, 1 = densest in the middle, thinning to none at the edge (per type)
     f32 lifetime, lifetime_spread; // seconds, give or take lifetime_spread
     f32 size;                  // m, half the width of the glow
     Vector3 color_start, color_end; // 0..1, the color at birth and at death. it fades out on the way

@@ -19,7 +19,9 @@
 typedef struct {
     i32 type;          // emitter type
     Vector3 position;  // world
+    Vector3 direction; // world, unit: its cone points this way
     Vector3 velocity;  // world, its sparks start with it
+    f32 extra_speed;   // m/s on top of the type's speed (from the hit)
 } EngineBurst;
 static EngineBurst engine_bursts[ENGINE_MAX_BURSTS];
 static i32 engine_burst_count;
@@ -77,6 +79,7 @@ typedef struct {
 static EngineBody engine_bodies[ENGINE_MAX_BODIES];
 static i32 engine_body_count;
 static ParticleContact engine_contact_lists[2][ENGINE_MAX_CONTACTS]; // this step's and last step's, swapped
+static Vector3 engine_contact_closing[ENGINE_MAX_CONTACTS]; // this step's: a's velocity - b's before the solver, for hits
 static i32 engine_contact_counts[2], engine_contacts_now;
 
 
@@ -88,8 +91,10 @@ static Vector3 engine_body_velocity(Engine *engine, i32 id) {
     return vector3_zero();
 }
 
-// a copy whose object bursts on a hit, touching other (pushed by the solver this step): counts down from now on
-static void engine_mark_hit(Engine *engine, i32 id, i32 other) {
+// a copy whose object bursts on a hit, touching other (pushed by the solver this step): counts down from now on.
+// out: unit, from the other's center toward the copy's. coming: the copy's velocity minus the other's before the hit.
+// its burst points from the way it bounces off (coming mirrored off the surface) toward straight out, by hit_straight_out
+static void engine_mark_hit(Engine *engine, i32 id, i32 other, Vector3 out, Vector3 coming) {
     i32 place = id - engine->object_count;
     if (place < 0 || place >= engine->copy_capacity) return;
     ObjectCopy *copy = &engine->copies[place];
@@ -98,6 +103,14 @@ static void engine_mark_hit(Engine *engine, i32 id, i32 other) {
     i32 steps = (i32)(object->hit_steps + 0.5f);
     copy->hit_left = steps < 1 ? 1 : steps;
     copy->hit_body = other;
+    real into = -vector3_scalar_product(coming, out); // toward the other's center
+    copy->hit_speed = into > 0 ? into : 0;
+    Vector3 mirrored = vector3_added(coming, vector3_multiplied(out, -2 * vector3_scalar_product(coming, out)));
+    real length = vector3_magnitude(mirrored);
+    mirrored = length > 0.0001f ? vector3_multiplied(mirrored, 1 / length) : out; // standing still: straight out
+    Vector3 direction = vector3_lerp(mirrored, out, object->hit_straight_out);
+    length = vector3_magnitude(direction);
+    copy->hit_direction = length > 0.0001f ? vector3_multiplied(direction, 1 / length) : out;
 }
 
 static void engine_gather_bodies(Engine *engine) {
@@ -171,13 +184,16 @@ static void engine_move_with_hits(Engine *engine, real time_step) {
     }
     engine_contact_counts[engine_contacts_now] = count;
     particle_contacts_warm(list, count, engine_contact_lists[before], engine_contact_counts[before]);
+    for (i32 i = 0; i < count; i++)
+        engine_contact_closing[i] = vector3_subtracted(list[i].a->velocity, list[i].b ? list[i].b->velocity : vector3_zero());
     particle_contacts_solve(list, count, ENGINE_SOLVER_PASSES);
     for (i32 i = 0; i < engine_body_count; i++) particle_move(engine_bodies[i].particle, time_step);
     particle_contacts_bounce(list, count, ENGINE_SOLVER_PASSES);
     for (i32 i = 0; i < count; i++) { // a pair the solver pushed apart touched: hits
         if (list[i].impulse + list[i].fix_impulse <= 0) continue;
-        engine_mark_hit(engine, list[i].id_a, list[i].id_b);
-        engine_mark_hit(engine, list[i].id_b, list[i].id_a);
+        Vector3 out_of_b = vector3_multiplied(list[i].normal, -1); // the normal goes from a toward b
+        engine_mark_hit(engine, list[i].id_a, list[i].id_b, out_of_b, engine_contact_closing[i]);
+        engine_mark_hit(engine, list[i].id_b, list[i].id_a, list[i].normal, vector3_multiplied(engine_contact_closing[i], -1));
     }
 }
 
@@ -197,7 +213,8 @@ FORCE_INLINE void engine_step(Engine *engine, real time_step) {
             i32 type = object->hit_burst - 1;
             if (type >= 0 && type < engine->emitter_type_count && engine_burst_count < ENGINE_MAX_BURSTS) {
                 Vector3 velocity = object->hit_moves_with == 0 ? engine_body_velocity(engine, copy->hit_body) : vector3_zero();
-                engine_bursts[engine_burst_count++] = (EngineBurst){type, copy->particle.position, velocity};
+                engine_bursts[engine_burst_count++] = (EngineBurst){type, copy->particle.position, copy->hit_direction, velocity,
+                                                                    (f32)(object->hit_speed_share * copy->hit_speed)};
             }
             copy->used = 0;
             continue;
@@ -255,6 +272,7 @@ static void engine_draw_model(Object *object, Vector3 position, Quaternion rotat
 }
 
 void engine_draw(Engine *engine, f32 alpha) {
+    if (engine->stars.count > 0) render_draw_stars(&engine->stars);
     for (i32 i = 0; i < engine->object_count; i++) {
         Object *object = &engine->objects[i];
         if (object->copies_only) continue;
@@ -290,7 +308,8 @@ void engine_draw(Engine *engine, f32 alpha) {
     for (i32 i = 0; i < engine_burst_count; i++) {
         EngineBurst burst = engine_bursts[i];
         if (burst.type >= engine->emitter_type_count) continue;
-        if (!emitter_burst(burst.type, &engine->emitter_types[burst.type], burst.position, burst.velocity))
+        if (!emitter_burst(burst.type, &engine->emitter_types[burst.type], burst.position, burst.direction, burst.velocity,
+                           burst.extra_speed))
             engine_bursts[waiting++] = burst;
     }
     engine_burst_count = waiting;

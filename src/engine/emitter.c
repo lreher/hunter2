@@ -30,6 +30,7 @@ void emitter_fire(Emitter *emitter, const EmitterType *type, Vector3 position, Q
         .type = emitter->type, // its sparks keep the type, so drag and streak reach them all their life
         .drag = type->drag,
         .stretch = type->stretch,
+        .cone_middle = type->cone_middle,
         .memory = emitter->memory,
     };
     render_emit(&render_emitter);
@@ -38,16 +39,17 @@ void emitter_fire(Emitter *emitter, const EmitterType *type, Vector3 position, Q
 
 void emitter_reset(Emitter *emitter) { emitter->memory.started = 0; }
 
-// A burst type (burst > 0) fires once at position: burst sparks all at once, cone around a straight up direction (a
-// cone of 3.14 is every way), at the type's speed, on top of velocity. 0 = it did not fit this frame, try again
-i32 emitter_burst(i32 type_index, const EmitterType *type, Vector3 position, Vector3 velocity) {
+// A burst type (burst > 0) fires once at position: burst sparks all at once, in its cone around direction (unit, a
+// cone of 3.14 is every way), at the type's speed plus extra_speed, on top of velocity. 0 = it did not fit this frame, try again
+i32 emitter_burst(i32 type_index, const EmitterType *type, Vector3 position, Vector3 direction, Vector3 velocity,
+                  f32 extra_speed) {
     RenderEmitter render_emitter = {
         .position = position,
         .rotation = quaternion_identity(),
-        .direction = vector3_create(0, 1, 0),
+        .direction = direction,
         .velocity = velocity,
         .burst = type->burst,
-        .speed = type->speed,
+        .speed = type->speed + extra_speed,
         .speed_spread = type->speed_spread,
         .cone = type->cone,
         .lifetime = type->lifetime,
@@ -58,6 +60,7 @@ i32 emitter_burst(i32 type_index, const EmitterType *type, Vector3 position, Vec
         .type = type_index,
         .drag = type->drag,
         .stretch = type->stretch,
+        .cone_middle = type->cone_middle,
     };
     return render_emit(&render_emitter);
 }
@@ -150,6 +153,7 @@ void emitter_type_add_sliders(EmitterType *type) { // in blocks (user): rate, li
     plat_ui_block("cone");
     plat_ui_slider("cone rad", 0, 3.14f, 0.01f, &type->cone);
     if (type->burst <= 0) plat_ui_slider("cone squeeze", 0, 1, 0.01f, &type->cone_squeeze);
+    plat_ui_slider("denser middle", 0, 1, 0.05f, &type->cone_middle);
     plat_ui_block_end();
     plat_ui_block("size");
     plat_ui_slider("size m", 0.005f, 1, 0.005f, &type->size);

@@ -19,6 +19,7 @@
 #include "render/shaders.c"
 #include "render/font.c"
 #include "render/particles.c"
+#include "render/stars.c"
 #include "render/mesh.c"
 #include "render/render.c"
 

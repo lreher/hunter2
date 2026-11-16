@@ -37,7 +37,7 @@ static Object hunter2_objects[HUNTER2_OBJECT_COUNT] = {
         .model = -1, .size = 0.15f, .color = {0.4f, 0.58f, 1.0f}, .glow = 1, .halo = 0.2f, // a ball, built in hunter2_init
         // a hit: one step to push what it hit, then gone, an explosion where it was (hit_burst set in hunter2_init: the
         // emitter types come further down), moving with what it hit
-        .hit_steps = 1, .hit_moves_with = 0,
+        .hit_steps = 1, .hit_moves_with = 0, .hit_straight_out = 0.5f, .hit_speed_share = 0.05f,
     },
     // put down by the universe's placing "planets", each its own size. mass from density, like Gravity Cloud
     [HUNTER2_PLANET] = {
@@ -126,7 +126,7 @@ static EmitterType hunter2_emitter_types[ENGINE_MAX_EMITTER_TYPES] = {
     },
     // where a bullet hits: fires once, every way (cone 3.14), speeds 0 give or take 13.5, white hot to black
     [HUNTER2_EMITTER_TYPE_EXPLOSION] = {
-        .name = "explosion", .burst = 2000, .rate = 5000, .speed = 0, .speed_spread = 13.5f, .base_speed = 0, .cone = 3.14f,
+        .name = "explosion", .burst = 2000, .rate = 5000, .speed = 0, .speed_spread = 13.5f, .base_speed = 0, .cone = 3.14f, .cone_middle = 1,
         .lifetime = 1, .lifetime_spread = 0.8f, .size = 0.235f,
         .color_start = {1.0f, 0.976f, 0.898f}, .color_end = {0, 0, 0}, .stretch = 0, .drag = 1.5f,
     },
@@ -171,6 +171,9 @@ static Engine hunter2_engine = {
     // the user's: 11858 x real G. a 197 m planet pulls the ship about 0.3 m/s^2 at its surface
     .gravity = 11858,
     .bounce = 0.95f,
+    // stars on the sky: most faint, a few bright, white tinted toward blue or orange
+    .stars = {.count = 6000, .size = 2.5f, .brightness = 1, .twinkle = 0.4f, .color = {1.0f, 0.97f, 0.92f},
+              .tint_one = {0.6f, 0.75f, 1.0f}, .tint_two = {1.0f, 0.7f, 0.4f}},
 };
 #define hunter2_ship (&hunter2_objects[HUNTER2_SHIP])
 

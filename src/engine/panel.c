@@ -447,6 +447,21 @@ void engine_add_panel(Engine *engine) {
     plat_ui_slider("bounce", 0, 1, 0.05f, &engine->bounce);
     plat_ui_block_end();
     plat_ui_fold_end();
+    plat_ui_fold("stars", "on the sky, look only");
+    plat_ui_block("stars");
+    plat_ui_slider("stars", 0, 20000, 100, &engine->stars.count);
+    plat_ui_slider("size px", 0.5f, 8, 0.1f, &engine->stars.size);
+    plat_ui_block_end();
+    plat_ui_block("light");
+    plat_ui_slider("brightness", 0, 3, 0.05f, &engine->stars.brightness);
+    plat_ui_slider("twinkle", 0, 1, 0.05f, &engine->stars.twinkle);
+    plat_ui_block_end();
+    plat_ui_block("colors");
+    plat_ui_color("base color", engine->stars.color);
+    plat_ui_color("tint 1", engine->stars.tint_one);
+    plat_ui_color("tint 2", engine->stars.tint_two);
+    plat_ui_block_end();
+    plat_ui_fold_end();
     for (i32 i = 0; i < engine->placing_count; i++) {
         Placing *placing = &engine->placings[i];
         note[0] = 0; // "places: planet"
@@ -514,6 +529,8 @@ void engine_add_panel(Engine *engine) {
             plat_ui_pick("burst", options, object->hit_burst, &engine->panel_action, PANEL_ACTION(PANEL_PICK_HIT_BURST, i));
             plat_ui_slider("gone after steps", 1, 30, 1, &object->hit_steps);
             plat_ui_choice("moves with", "what it hits|nothing", &object->hit_moves_with);
+            plat_ui_slider("straight out", 0, 1, 0.05f, &object->hit_straight_out); // 0 = mirrored off the surface
+            plat_ui_slider("speed from hit", 0, 1, 0.01f, &object->hit_speed_share); // × its speed into the surface
             plat_ui_block_end();
         }
         i32 actuator_count = 0, emitter_count = 0; // folds only for the ones it has

@@ -36,9 +36,9 @@ typedef struct {
 } ParticleAnchorGpu;
 
 // One emitter type, as the shaders read it (EmitterType in shaders.c): x = share of velocity kept this frame (drag),
-// y = stretch, seconds of movement a streak shows
+// y = stretch, seconds of movement a streak shows, z = cone middle (0 even over the cone, 1 densest in the middle)
 typedef struct {
-    f32 keep, stretch, pad0, pad1;
+    f32 keep, stretch, cone_middle, pad1;
 } ParticleTypeGpu;
 
 // The uniform for all three shaders (Frame in shaders.c)
@@ -157,6 +157,7 @@ i32 render_emit(RenderEmitter *emitter) {
     u32 type = emitter->type < 0 ? 0 : emitter->type >= PARTICLE_MAX_TYPES ? PARTICLE_MAX_TYPES - 1 : (u32)emitter->type;
     particle_type_drag[type] = emitter->drag; // turned into the share kept this frame in render_particles_compute
     particle_frame.types[type].stretch = emitter->stretch;
+    particle_frame.types[type].cone_middle = emitter->cone_middle;
     u32 anchor = 0;
     if (emitter->local) {
         if (memory->anchor == 0 && particle_anchor_count < PARTICLE_MAX_ANCHORS) memory->anchor = ++particle_anchor_count;

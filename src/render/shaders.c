@@ -279,7 +279,7 @@ static const char render_shader_line[] =
     "    first: u32, count: u32, color_start: u32, color_end: u32,\n" /* first: its first new particle this frame */ \
     "};\n" \
     "struct EmitterType {\n" \
-    "    keep: f32, stretch: f32, pad0: f32, pad1: f32,\n" /* keep: share of velocity kept this frame (drag). stretch: seconds of movement a streak shows */ \
+    "    keep: f32, stretch: f32, cone_middle: f32, pad1: f32,\n" /* keep: share of velocity kept this frame (drag). stretch: seconds of movement a streak shows. cone_middle: 0 = even over the cone, 1 = densest in the middle */ \
     "};\n" \
     "struct Frame {\n" \
     "    view_proj: mat4x4f,\n" \
@@ -336,13 +336,17 @@ static const char render_shader_particle_spawn[] =
     "    let emitter = frame.emitters[which];\n"
     "    var state = hash(i ^ frame.seed);\n"
     "\n"
-    "    // a direction in the cone around the emitter's direction, spread evenly over the cone's cap\n"
+    "    // a direction in the cone around the emitter's direction. share = how much of the cone's cap lies closer to the\n"
+    "    // middle. cone_middle 0: share is even, sparks spread evenly over the cap. up to 1: sparks are most often near\n"
+    "    // the middle and thin out to none at the cone's edge (density goes as (1 - share)^(3 * cone_middle))\n"
     "    let forward = emitter.direction.xyz;\n"
     "    var helper = vec3f(0.0, 1.0, 0.0);\n"
     "    if (abs(forward.y) > 0.99) { helper = vec3f(1.0, 0.0, 0.0); }\n"
     "    let side = normalize(cross(helper, forward));\n"
     "    let up = cross(forward, side);\n"
-    "    let cos_angle = mix(1.0, cos(emitter.position.w), random(&state));\n"
+    "    let middle = frame.emitter_types[emitter.emitter_type].cone_middle;\n"
+    "    let share = 1.0 - pow(1.0 - random(&state), 1.0 / (1.0 + 3.0 * middle));\n"
+    "    let cos_angle = mix(1.0, cos(emitter.position.w), share);\n"
     "    let sin_angle = sqrt(max(0.0, 1.0 - cos_angle * cos_angle));\n"
     "    let around = random(&state) * 6.2831853;\n"
     "    let direction = forward * cos_angle + (side * cos(around) + up * sin(around)) * sin_angle;\n"
@@ -427,4 +431,81 @@ static const char render_shader_particle_draw[] =
     "@fragment fn fs(i: VOut) -> @location(0) vec4f {\n"
     "    let fade = max(0.0, 1.0 - dot(i.corner, i.corner));\n"
     "    return vec4f(i.color.rgb, i.color.a * fade * fade);\n"
+    "}\n";
+
+// Stars on the sky (render/stars.c). No vertex buffer: star k gets its direction, brightness, tint and twinkle
+// timing from a hash of k. A direction (w = 0) has no position, so the camera's move drops out and only its turn
+// is left: the stars are infinitely far. Each star is a quad a few times its core size, for the soft glow around
+// it and, on the bright ones, a small cross of light (the sparkle).
+static const char render_shader_stars[] =
+    "struct Stars {\n"
+    "    view_proj: mat4x4f,\n"
+    "    screen: vec4f,\n"   // width, height (pixels), seconds, unused
+    "    look: vec4f,\n"     // size (pixels), brightness, twinkle, unused
+    "    color: vec4f,\n"
+    "    tint_one: vec4f,\n"
+    "    tint_two: vec4f,\n"
+    "};\n"
+    "@group(0) @binding(0) var<uniform> stars: Stars;\n"
+    "\n"
+    "struct VOut {\n"
+    "    @builtin(position) position: vec4f,\n"
+    "    @location(0) spot: vec2f,\n"    // where in the quad, in core sizes: -4..4
+    "    @location(1) color: vec3f,\n"   // tint times brightness now
+    "    @location(2) sparkle: f32,\n"   // how strong the cross of light is
+    "};\n"
+    "\n"
+    "fn hash(x: u32) -> u32 {\n" // pcg
+    "    let state = x * 747796405u + 2891336453u;\n"
+    "    let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;\n"
+    "    return (word >> 22u) ^ word;\n"
+    "}\n"
+    "fn random(seed: ptr<function, u32>) -> f32 {\n" // 0..1, a new one each call
+    "    *seed = hash(*seed);\n"
+    "    return f32(*seed >> 8u) / 16777216.0;\n"
+    "}\n"
+    "\n"
+    "const QUAD_CORES: f32 = 4.0;\n" // the quad reaches this many core sizes from the center
+    "\n"
+    "@vertex fn vs(@builtin(vertex_index) corner_index: u32, @builtin(instance_index) star: u32) -> VOut {\n"
+    "    var seed = hash(star * 7u + 12345u);\n"
+    "    let height = 1.0 - 2.0 * random(&seed);\n" // even over the whole sky
+    "    let around = 6.2831853 * random(&seed);\n"
+    "    let flat_length = sqrt(max(0.0, 1.0 - height * height));\n"
+    "    let direction = vec3f(flat_length * cos(around), height, flat_length * sin(around));\n"
+    "    let magnitude = pow(random(&seed), 5.0);\n" // most stars faint, a few bright
+    "    let tint = select(stars.tint_two.rgb, stars.tint_one.rgb, random(&seed) < 0.5);\n"
+    "    let color = mix(stars.color.rgb, tint, pow(random(&seed), 1.5));\n"
+    "    let rate = 6.2831853 * (0.6 + 2.4 * random(&seed));\n" // flickers 0.6..3 times a second
+    "    let phase = 6.2831853 * random(&seed);\n"
+    "    let time = stars.screen.z;\n"
+    "    let flicker = 0.5 + 0.3 * sin(time * rate + phase) + 0.2 * sin(time * rate * 1.73 + phase * 2.0);\n"
+    "    let light = stars.look.y * (0.12 + 0.88 * magnitude) * (1.0 - stars.look.z * (1.0 - flicker));\n"
+    "    let core_pixels = max(stars.look.x * (0.35 + 0.65 * magnitude), 0.8);\n"
+    "\n"
+    "    var o: VOut;\n"
+    "    var clip = stars.view_proj * vec4f(direction, 0.0);\n"
+    "    if (clip.w <= 0.0) {\n" // behind the camera: every corner on one point, nothing drawn
+    "        o.position = vec4f(0.0, 0.0, -1.0, 1.0);\n"
+    "        return o;\n"
+    "    }\n"
+    "    let corner = vec2f(f32(corner_index & 1u), f32(corner_index >> 1u)) * 2.0 - 1.0;\n"
+    "    let half_pixels = core_pixels * QUAD_CORES;\n"
+    "    clip = vec4f(clip.xy + corner * half_pixels * 2.0 / stars.screen.xy * clip.w, 0.5 * clip.w, clip.w);\n"
+    "    o.position = clip;\n"
+    "    o.spot = corner * QUAD_CORES;\n"
+    "    o.color = color * light;\n"
+    "    o.sparkle = magnitude * magnitude * (1.0 - stars.look.z * (1.0 - flicker * flicker));\n"
+    "    return o;\n"
+    "}\n"
+    "\n"
+    "@fragment fn fs(i: VOut) -> @location(0) vec4f {\n"
+    "    let distance_squared = dot(i.spot, i.spot);\n"
+    "    let core = exp(-distance_squared * 2.5);\n"
+    "    let glow = 0.12 * exp(-sqrt(distance_squared) * 1.5);\n"
+    "    let along = max(vec2f(0.0), 1.0 - abs(i.spot) / QUAD_CORES);\n"
+    "    let spikes = exp(-abs(i.spot.y) * 6.0) * along.x * along.x + exp(-abs(i.spot.x) * 6.0) * along.y * along.y;\n"
+    "    let edge = max(0.0, 1.0 - distance_squared / (QUAD_CORES * QUAD_CORES));\n"
+    "    let amount = (core + glow + spikes * i.sparkle * 0.8) * edge;\n"
+    "    return vec4f(i.color * amount, 1.0);\n"
     "}\n";

@@ -354,6 +354,7 @@ i32 render_world_to_screen(Vector3 point, f32 *x, f32 *y) {
 
 void render_set_camera(Matrix4 view_projection, Vector3 eye) {
     render_particles_set_camera(view_projection, eye);
+    render_stars_set_camera(view_projection);
     for (i32 i = 0; i < 16; i++) mesh_scene.view_proj[i] = view_projection.m[i];
     Vector3 light = vector3_create(0.4f, 1.0f, 0.3f); // up, a bit right and front
     vector3_normalize(&light);

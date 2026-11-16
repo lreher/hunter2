@@ -265,8 +265,30 @@ Built:
 - The user's save baked into code defaults: gravity 11858 x real G, bounce 0.95; planets 396, spread 4500 m, size 1..197 m, speed 0..5.5 m/s; bullet mass 19.5 kg, life 7.2 s, size 0.15 m, color #6694ff, halo 0.2 m; machine gun rate 10, speed 2000, spread 8, cone 0; explosion speed 0, spread 13.5, size 0.235 m, colors #fff9e5 -> black; side colors #828282 -> black, reverse #8f8f8f -> black; debug grid off. Everything else already matched. "bullet/gone after steps" was 0 in the save (below the slider's 1, acts as 1): code keeps 1.
 - Demo "balls" renamed "Ball Pit" (was "Erasmos Balls"), id unchanged.
 
+## Stars (session 6, 2026-11-15, talked through and built, not yet checked in Chrome)
+User: "beautiful sparkly stars". Agreed sketch (user: "amazing"): universe / stars [ count ] [ size ] [ brightness ] [ twinkle ] [ colors ], on the sky (infinitely far, turn with the camera, never closer), look only.
+- render/stars.c + render_shader_stars (end of shaders.c): no vertex buffer, star k's direction, brightness (most faint: magnitude = random^5), tint and twinkle timing come from a hash of k. Drawn with w = 0 (a direction, so the camera's move drops out), first in the screen pass, additive, depth off: everything after covers them. A quad 4 core sizes out: core, soft glow, a cross of light on the bright ones (sparkle), all flicker with twinkle. render_draw_stars(RenderStars) once a frame, up to 100000.
+- Engine.stars (RenderStars), engine_draw draws them when count > 0. Panel: universe / fold "stars" ("on the sky, look only"), blocks stars (count 0..20000, "size px" 0.5..8), light (brightness 0..3, twinkle 0..1), colors ("base color", "tint 1", "tint 2": each star is the base color tinted a random amount toward one of the tints). Picker names were Claude's, not confirmed.
+- hunter2: 6000, 2.5 px, brightness 1, twinkle 0.4, base #fff8eb-ish, tints blue (0.6, 0.75, 1) and orange (1, 0.7, 0.4).
+- Star uniform is uploaded before the mesh scene: the headless fake reads the last uniform write as the camera.
+- Headless: draw(4, 6000) each frame, the count slider changes it, 0 draws none. The fake does not compile shaders: the WGSL is unchecked until Chrome.
+
+## Explosion aim (session 6, built, not yet checked in Chrome)
+User: the explosion shoots off in a cone between A (mirrored off the surface, a ricochet) and B (straight out of the surface), with a control for how much toward B; the cone stays the emitter type's cone slider.
+- Object.hit_straight_out (0 = mirrored, 1 = straight out), panel "on hit" slider "straight out" (Claude's name, not confirmed). hunter2 bullet 0.5. ObjectCopy.hit_direction set at the first hit: engine_contact_closing keeps each contact's velocity difference before the solver, engine_mark_hit mirrors it off the contact normal and blends toward the normal. EngineBurst and emitter_burst take the direction (was straight up).
+- Headless (spread 300, at 0.5): bullets came in 9 degrees off head on (coming . out = -0.987), bursts pointed 4.5 degrees off straight out (0.996): halfway, as it should. The fake keeps one slider per label and the planet's "on hit" block also has "straight out", so 0 and 1 were not tried by slider.
+- The explosion type's cone is still 3.14 (every way) in code: the user turns it down to see the cone.
+- In Chrome: "doesnt look like its working". Likely cause told to the user: explosion speed 0 with spread 13.5 gives half the sparks a negative speed, so they shoot backwards (a mirror cone). Offered A raise speed above spread in the panel (picked implicitly, the user moved on), B never let speed go below 0 (not built).
+- User: the cone edge is too sharp, should be densest in the middle and thin out to the cone's edge. Built EmitterType.cone_middle (panel cone block "denser middle" 0..1, Claude's name, every type). 0 = even over the cap as before, up to 1 the share of the cap is drawn as 1 - (1 - random)^(1 / (1 + 3 x middle)): density goes as (1 - share)^(3 x middle), none at the edge. Sent to the GPU in the type's spare slot (ParticleTypeGpu.cone_middle). Explosion 1, others 0 (thrusters unchanged). Not yet checked in Chrome.
+
+## Explosion speed from the hit (session 6, built, not yet checked in Chrome)
+User: explosion speed based on bullet speed / impact force. Offered A the bullet's speed against what it hit, B only its speed into the surface (head on fast, skimming slow); user: "lets try B first and see".
+- Object.hit_speed_share, panel "on hit" slider "speed from hit" 0..1 (Claude's name). ObjectCopy.hit_speed = the copy's speed toward the other's center at the first hit (from engine_contact_closing, never below 0). The burst's sparks get type speed + share x hit_speed (EngineBurst.extra_speed, emitter_burst's extra_speed). hunter2 bullet 0.05.
+- Headless (code defaults, 2000 m/s bullets): hits at 1971..1980 m/s into the surface of 1997..2005 m/s, so about 99 m/s extra at 0.05.
+- Bullets hard to see (user, "not a priority"): told the numbers (0.15 m is 1.2 px at 100 m), offered A bigger, B streaks along their way (code), C slower. Not picked. The user said they are not at 2000 m/s.
+
 ## Next
-- Next: asteroids as well as planets, "similar config" (likely a second placing and object; talk it through first). Quality of life done in session 5 (roll when idle, up/down on the wings, smooth planets, explosions on hit, loading screen).
+- Stars built first (user's first instruction in session 6). Then: asteroids as well as planets, "similar config" (likely a second placing and object; talk it through first). Quality of life done in session 5 (roll when idle, up/down on the wings, smooth planets, explosions on hit, loading screen).
 - Hits checked in Chrome (user first said "not working", then "it is working sorry").
 - The user checks bullets in Chrome (hold left mouse while flying), and the objects heading / emits pick in the panel.
 - Waiting on the user: shorter labels inside blocks (needs their save pasted first), camera in blocks (distance | position | follow) offered.
